@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: listing_console
+      POSTGRES_USER: listing_console
+      POSTGRES_PASSWORD: listing_console
+    volumes:
+      - listing_console_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U listing_console -d listing_console"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  api:
+    build: .
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - listing_console_media:/app/storage
+    ports:
+      - "3100:3100"
+
+volumes:
+  listing_console_pg:
+  listing_console_media:
