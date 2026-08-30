@@ -34,3 +34,23 @@ The internal UP draft intentionally does not pretend to be the final Mercado Lib
 5. exact `PUBLISH` confirmation required by the live route.
 6. idempotency key required when live publishing is implemented.
 7. no permanent-delete endpoint.
+
+## OAuth and token lifecycle
+
+- The browser receives only a short-lived Global Selling authorization URL.
+- OAuth state is random, stored as a SHA-256 hash, expires after ten minutes by default, and is consumed once.
+- The callback exchanges the authorization code only on the server.
+- Client Secret and `TOKEN_ENCRYPTION_KEY` stay in server environment variables.
+- Access and Refresh Tokens are encrypted with AES-256-GCM and authenticated context before PostgreSQL storage.
+- Refresh Token rotation is serialized with a PostgreSQL advisory lock and row lock.
+- Tokens expiring within thirty minutes are refreshed automatically.
+- An authenticated request receiving HTTP 401 refreshes and retries exactly once.
+- API/log responses never return token ciphertext or plaintext.
+- Default HTTP request logging is disabled so OAuth callback query parameters are never written to logs.
+
+## Production network boundary
+
+- Nginx is the only public entry point.
+- The API binds to host loopback port 3100.
+- PostgreSQL has no host port in the production Compose file.
+- Appsmith calls authenticated API actions; it does not receive Mercado Libre credentials.

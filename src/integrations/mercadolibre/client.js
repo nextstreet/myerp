@@ -11,26 +11,23 @@ export function redactSensitive(value) {
   return value;
 }
 
-export class MercadoLibreClient {
-  constructor(config) {
-    this.config = config;
+export class MercadoLibreApiClient {
+  constructor({ apiBaseUrl }) {
+    this.apiBaseUrl = apiBaseUrl;
   }
 
-  isConfigured() {
-    return Boolean(this.config.clientId && this.config.clientSecret && this.config.accessToken);
-  }
-
-  async request(path, { method = 'GET', body, idempotencyKey } = {}) {
-    if (!this.isConfigured()) {
-      const error = new Error('Mercado Libre OAuth is not configured on the server');
-      error.code = 'meli_not_configured';
+  async request(path, { accessToken, method = 'GET', body, idempotencyKey } = {}) {
+    if (!accessToken) {
+      const error = new Error('A server-side Mercado Libre access token is required');
+      error.code = 'meli_token_required';
       throw error;
     }
-    const response = await fetch(`${this.config.apiBaseUrl}${path}`, {
+    const response = await fetch(`${this.apiBaseUrl}${path}`, {
       method,
       headers: {
-        authorization: `Bearer ${this.config.accessToken}`,
-        'content-type': 'application/json',
+        authorization: `Bearer ${accessToken}`,
+        accept: 'application/json',
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
         ...(idempotencyKey ? { 'x-idempotency-key': idempotencyKey } : {})
       },
       body: body === undefined ? undefined : JSON.stringify(body)
@@ -41,13 +38,5 @@ export class MercadoLibreClient {
       status: response.status,
       payload: redactSensitive(payload)
     };
-  }
-
-  assertPublishingEnabled() {
-    if (!this.config.publishEnabled) {
-      const error = new Error('Live publishing is disabled by MELI_PUBLISH_ENABLED');
-      error.code = 'publishing_disabled';
-      throw error;
-    }
   }
 }

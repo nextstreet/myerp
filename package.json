@@ -1,6 +1,6 @@
 {
   "name": "mercado-libre-ai-listing-console",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Lightweight AI-assisted Mercado Libre listing console for Mexico, Colombia and Chile.",
@@ -12,6 +12,7 @@
     "start": "node src/index.js",
     "db:migrate": "node src/db/migrate.js",
     "db:seed": "node scripts/seed-test-product.js",
+    "meli:refresh-tokens": "node scripts/refresh-tokens.js",
     "test": "node --test",
     "check": "node --check src/index.js && node --test"
   },

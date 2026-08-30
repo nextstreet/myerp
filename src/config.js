@@ -16,6 +16,16 @@ function csv(value) {
   return String(value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+function optionalUrl(name, fallback = '') {
+  const value = process.env[name] ?? fallback;
+  if (!value) return '';
+  try {
+    return new URL(value).toString().replace(/\/$/, '');
+  } catch {
+    throw new Error(`${name} must be a valid absolute URL`);
+  }
+}
+
 export function loadConfig() {
   const config = {
     env: process.env.NODE_ENV ?? 'development',
@@ -42,10 +52,13 @@ export function loadConfig() {
       clientId: process.env.MELI_CLIENT_ID ?? '',
       clientSecret: process.env.MELI_CLIENT_SECRET ?? '',
       redirectUri: process.env.MELI_REDIRECT_URI ?? '',
-      accessToken: process.env.MELI_ACCESS_TOKEN ?? '',
-      refreshToken: process.env.MELI_REFRESH_TOKEN ?? '',
+      tokenEncryptionKey: process.env.TOKEN_ENCRYPTION_KEY ?? '',
+      authBaseUrl: optionalUrl('MELI_AUTH_BASE_URL', 'https://global-selling.mercadolibre.com'),
+      apiBaseUrl: optionalUrl('MELI_API_BASE_URL', 'https://api.mercadolibre.com'),
+      successRedirectUrl: optionalUrl('OAUTH_SUCCESS_REDIRECT_URL'),
+      stateTtlSeconds: integer('OAUTH_STATE_TTL_SECONDS', 600),
+      refreshIntervalSeconds: integer('TOKEN_REFRESH_INTERVAL_SECONDS', 600),
       publishEnabled: bool('MELI_PUBLISH_ENABLED'),
-      apiBaseUrl: process.env.MELI_API_BASE_URL ?? 'https://api.mercadolibre.com'
     }
   };
 
@@ -54,7 +67,27 @@ export function loadConfig() {
     throw new Error('APP_API_KEY must contain at least 32 characters in production');
   }
   if (config.storage.driver !== 'local') {
-    throw new Error('Only local storage is implemented in v0.1.0');
+    throw new Error('Only local storage is implemented in v0.2.0');
   }
+  const meliValues = [
+    config.mercadoLibre.clientId,
+    config.mercadoLibre.clientSecret,
+    config.mercadoLibre.redirectUri,
+    config.mercadoLibre.tokenEncryptionKey
+  ];
+  const meliConfigured = meliValues.every(Boolean);
+  if (meliValues.some(Boolean) && !meliConfigured) {
+    throw new Error('MELI_CLIENT_ID, MELI_CLIENT_SECRET, MELI_REDIRECT_URI and TOKEN_ENCRYPTION_KEY must be configured together');
+  }
+  if (meliConfigured) {
+    const key = Buffer.from(config.mercadoLibre.tokenEncryptionKey, 'base64');
+    if (key.length !== 32) throw new Error('TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key');
+    try {
+      new URL(config.mercadoLibre.redirectUri);
+    } catch {
+      throw new Error('MELI_REDIRECT_URI must be a valid absolute URL');
+    }
+  }
+  config.mercadoLibre.configured = meliConfigured;
   return config;
 }

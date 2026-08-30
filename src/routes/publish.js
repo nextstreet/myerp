@@ -86,7 +86,12 @@ export async function publishRoutes(app) {
       error.code = 'publish_confirmation_required';
       throw error;
     }
-    app.mercadoLibre.assertPublishingEnabled();
+    if (!app.config.mercadoLibre.publishEnabled) {
+      const error = new Error('Live publishing is disabled by MELI_PUBLISH_ENABLED');
+      error.code = 'publishing_disabled';
+      error.statusCode = 403;
+      throw error;
+    }
     const error = new Error('Official site-specific UP publishing adapter is not enabled in v0.1.0');
     error.statusCode = 501;
     error.code = 'publishing_adapter_pending';
