@@ -53,6 +53,7 @@ export function loadConfig() {
       clientSecret: process.env.MELI_CLIENT_SECRET ?? '',
       redirectUri: process.env.MELI_REDIRECT_URI ?? '',
       tokenEncryptionKey: process.env.TOKEN_ENCRYPTION_KEY ?? '',
+      scope: process.env.MELI_SCOPE ?? 'offline_access',
       authBaseUrl: optionalUrl('MELI_AUTH_BASE_URL', 'https://global-selling.mercadolibre.com'),
       apiBaseUrl: optionalUrl('MELI_API_BASE_URL', 'https://api.mercadolibre.com'),
       successRedirectUrl: optionalUrl('OAUTH_SUCCESS_REDIRECT_URL'),

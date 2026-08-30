@@ -50,6 +50,7 @@ export class MercadoLibreOAuthService {
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('client_id', this.config.clientId);
     url.searchParams.set('redirect_uri', this.config.redirectUri);
+    url.searchParams.set('scope', this.config.scope);
     url.searchParams.set('state', state);
     return { authorizationUrl: url.toString(), expiresInSeconds: this.config.stateTtlSeconds };
   }
