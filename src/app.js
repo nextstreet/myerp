@@ -52,7 +52,7 @@ export async function buildApp({ config, pool, mercadoLibreOAuth = null }) {
     return {
       ok: true,
       service: 'mercado-libre-ai-listing-console',
-      version: '0.2.0',
+      version: '0.3.0',
       mercadoLibreOAuthConfigured: config.mercadoLibre.configured
     };
   });

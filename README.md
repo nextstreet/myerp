@@ -2,9 +2,9 @@
 
 美客多AI上架工作台：一个面向 Mexico、Colombia、Chile 的轻量级商品资料、AI文案、图片、报价、UP多规格和官方API发布工作台。
 
-> Current stage: `v0.2.0 secure OAuth`. Global Selling OAuth and read-only smoke testing are implemented. Live publishing remains disabled until account capabilities, official site payloads and user confirmation are verified.
+> Current stage: `v0.3.0 review and safe preflight`. OAuth and token rotation passed against the connected CBT account. Product review editing, field confirmation protection, UP capability detection, category requirement lookup and read-only remote preflight are implemented. Live publishing remains disabled.
 
-## Included in v0.2.0
+## Included in v0.3.0
 
 - PostgreSQL schema for products, variants, media, listings, listing variants and idempotent publish jobs.
 - Product creation/list/detail/status APIs.
@@ -20,6 +20,13 @@
 - Server-only Mercado Libre client boundary with recursive sensitive-field redaction.
 - Six-color metal mesh organizer seed data and automated tests.
 - Live publishing safety switch and explicit confirmation gate.
+- Human-editable product, variant and three-site listing review APIs.
+- Confirmed-field locks: AI-originated updates cannot overwrite approved values.
+- External generated-image registration, media sorting, prompts, preview content and color association.
+- `user_product_seller` capability detection using the connected seller profile.
+- Current category-required/variation attribute lookup for up to ten category IDs.
+- Global UP Family candidate preview preserving all six User Products and all three site sales conditions.
+- Read-only remote preflight with missing attributes/pictures and redacted validation job records.
 
 ## Quick start
 
@@ -52,7 +59,12 @@ When `APP_API_KEY` is configured, send it as `X-API-Key` for every `/api/*` requ
 | POST | `/api/products` | Create product with variants |
 | GET | `/api/products/:id` | Product review data |
 | PATCH | `/api/products/:id/status` | Change non-publishing workflow state |
+| PATCH | `/api/products/:id` | Human or AI-source product review update |
+| POST/PATCH | `/api/products/:id/variants[...]` | Add or edit concrete variants |
+| PUT | `/api/products/:id/listings/:site` | Create/edit the MLM/MCO/MLC listing draft |
+| POST | `/api/products/:id/confirmations` | Confirm/unconfirm fields protected from AI overwrite |
 | POST | `/api/products/:id/media` | Upload image/video/ZIP |
+| POST | `/api/products/:id/media/external` | Register an HTTPS image generated outside the console |
 | POST | `/api/products/:id/variants/:variantId/media/:mediaId` | Associate media with a variant |
 | POST | `/api/pricing/quote` | Calculate one site quote |
 | POST | `/api/pricing/quote-all` | Calculate independent three-site quotes |
@@ -61,9 +73,14 @@ When `APP_API_KEY` is configured, send it as `X-API-Key` for every `/api/*` requ
 | GET | `/api/integrations/mercadolibre/accounts` | List connected accounts without tokens |
 | POST | `/api/integrations/mercadolibre/accounts/:id/refresh` | Rotate the account token manually |
 | POST | `/api/integrations/mercadolibre/accounts/:id/smoke-test` | Run read-only API checks |
+| GET | `/api/integrations/mercadolibre/accounts/:id/capabilities` | Inspect CBT and `user_product_seller` capability |
+| POST | `/api/integrations/mercadolibre/accounts/:id/category-requirements` | Read official category attributes |
 | GET | `/api/publish/:productId/preflight` | Validate the family before API conversion |
 | GET | `/api/publish/:productId/draft` | Preview the internal UP draft |
-| POST | `/api/publish/:productId/live` | Safety-gated placeholder; no live publishing in v0.1.0 |
+| GET | `/api/publish/:productId/global-up-preview` | Preview the unsent Global UP Family candidate |
+| POST | `/api/publish/:productId/remote-preflight` | Read-only account/category preflight; never publishes |
+| GET | `/api/publish/jobs` | Review preflight/publish job summaries and errors |
+| POST | `/api/publish/:productId/live` | Safety-gated placeholder; no live publishing in v0.3.0 |
 
 ## Security
 
@@ -96,6 +113,8 @@ docker compose run --rm api npm run db:migrate
 docker compose up -d
 ```
 
+When upgrading from v0.2.0, pulling the new image is not enough: run `npm run db:migrate` (or the Compose migration command above) so `003_review_and_preflight.sql` is applied before restarting the API.
+
 Nginx must forward both the Appsmith/API path and the exact registered callback path `https://mercado.cybertao.space/oauth/callback` to `127.0.0.1:3100`. Keep `MELI_PUBLISH_ENABLED=false` during OAuth and smoke testing.
 
 For local development only, expose PostgreSQL with:
@@ -106,11 +125,11 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 
 ## Next implementation milestone
 
-1. Inspect the existing server and complete the first OAuth authorization.
-2. Run the read-only smoke test and record real Global Selling account capabilities.
-3. Add listing editing and confirmed-field locking.
-4. Convert the internal UP draft to account/site-specific official requests and API preflight.
-5. Build and export the four Appsmith pages.
+1. Wire the four Appsmith pages using [appsmith/API_QUERIES.md](appsmith/API_QUERIES.md).
+2. Upload/associate one approved image for each of the six colors.
+3. Select real categories and import their current mandatory attributes.
+4. Confirm the final Global UP payload against the connected account's returned metadata.
+5. Implement picture upload plus a still-disabled idempotent publication adapter.
 6. Add FFmpeg template video generation.
 
 See [docs/architecture.md](docs/architecture.md) for the data and safety boundaries.

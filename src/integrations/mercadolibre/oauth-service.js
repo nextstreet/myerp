@@ -214,7 +214,8 @@ export class MercadoLibreOAuthService {
     const result = await this.pool.query(`
       SELECT sa.id, sa.meli_user_id, sa.nickname, sa.site_default, sa.account_type,
              sa.granted_scopes, sa.status, sa.last_verified_at,
-             ot.access_expires_at, ot.refresh_token_enc IS NOT NULL AS has_refresh_token
+             ot.access_expires_at, ot.refresh_token_enc IS NOT NULL AS has_refresh_token,
+             sa.capabilities, sa.capabilities_checked_at
       FROM seller_accounts sa
       LEFT JOIN oauth_tokens ot ON ot.seller_account_id = sa.id
       ORDER BY sa.created_at
@@ -229,8 +230,58 @@ export class MercadoLibreOAuthService {
       status: row.status,
       accessExpiresAt: row.access_expires_at,
       hasRefreshToken: row.has_refresh_token,
-      lastVerifiedAt: row.last_verified_at
+      lastVerifiedAt: row.last_verified_at,
+      capabilities: row.capabilities ?? {},
+      capabilitiesCheckedAt: row.capabilities_checked_at
     }));
+  }
+
+  async inspectCapabilities(accountId) {
+    const account = await this.pool.query('SELECT meli_user_id FROM seller_accounts WHERE id=$1', [accountId]);
+    if (!account.rowCount) throw oauthError('Seller account is not connected', 'seller_account_not_connected', 404);
+    const userId = account.rows[0].meli_user_id;
+    const profile = await this.authenticatedRequest(accountId, `/users/${userId}`);
+    if (!profile.ok) throw oauthError(`Mercado Libre user capability lookup returned HTTP ${profile.status}`, 'meli_capability_lookup_failed');
+    const tags = Array.isArray(profile.payload?.tags) ? profile.payload.tags : [];
+    const capabilities = {
+      userProductSeller: tags.includes('user_product_seller'),
+      globalSelling: profile.payload?.site_id === 'CBT',
+      siteId: profile.payload?.site_id ?? null,
+      tags
+    };
+    await this.pool.query(`
+      UPDATE seller_accounts SET capabilities=$2,capabilities_checked_at=now(),last_verified_at=now()
+      WHERE id=$1
+    `, [accountId, capabilities]);
+    return capabilities;
+  }
+
+  async categoryRequirements(accountId, categoryIds) {
+    const unique = [...new Set(categoryIds.filter(Boolean))];
+    const categories = [];
+    for (const categoryId of unique) {
+      const response = await this.authenticatedRequest(accountId, `/categories/${encodeURIComponent(categoryId)}/attributes`);
+      const attributes = Array.isArray(response.payload) ? response.payload : [];
+      categories.push({
+        categoryId,
+        ok: response.ok,
+        httpStatus: response.status,
+        requiredAttributes: attributes.filter((attribute) =>
+          attribute.tags?.required === true || attribute.tags?.catalog_required === true
+        ).map((attribute) => ({
+          id: attribute.id,
+          name: attribute.name,
+          valueType: attribute.value_type,
+          values: Array.isArray(attribute.values) ? attribute.values.slice(0, 100) : []
+        })),
+        variationAttributes: attributes.filter((attribute) => attribute.tags?.allow_variations === true).map((attribute) => ({
+          id: attribute.id,
+          name: attribute.name,
+          valueType: attribute.value_type
+        }))
+      });
+    }
+    return { ok: categories.every((category) => category.ok), categories };
   }
 
   async smokeTest(accountId) {

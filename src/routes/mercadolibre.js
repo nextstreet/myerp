@@ -59,4 +59,21 @@ export async function mercadoLibreRoutes(app) {
     if (!app.mercadoLibreOAuth) throw unavailable();
     return app.mercadoLibreOAuth.smokeTest(request.params.accountId);
   });
+
+  app.get('/api/integrations/mercadolibre/accounts/:accountId/capabilities', async (request) => {
+    if (!app.mercadoLibreOAuth) throw unavailable();
+    return app.mercadoLibreOAuth.inspectCapabilities(request.params.accountId);
+  });
+
+  app.post('/api/integrations/mercadolibre/accounts/:accountId/category-requirements', async (request) => {
+    if (!app.mercadoLibreOAuth) throw unavailable();
+    const categoryIds = request.body?.categoryIds;
+    if (!Array.isArray(categoryIds) || categoryIds.length < 1 || categoryIds.length > 10) {
+      const error = new Error('categoryIds must contain between 1 and 10 category IDs');
+      error.statusCode = 400;
+      error.code = 'validation_error';
+      throw error;
+    }
+    return app.mercadoLibreOAuth.categoryRequirements(request.params.accountId, categoryIds.map(String));
+  });
 }

@@ -34,6 +34,17 @@ The internal UP draft intentionally does not pretend to be the final Mercado Lib
 5. exact `PUBLISH` confirmation required by the live route.
 6. idempotency key required when live publishing is implemented.
 7. no permanent-delete endpoint.
+8. AI-source review updates skip every field marked confirmed; human edits remain possible.
+9. v0.3 remote preflight performs authenticated GET requests only and records summaries, never tokens or full credentials.
+
+## v0.3 review and preflight boundary
+
+- `products`, `variants`, and `listings` expose explicit allowlisted review fields.
+- `confirmed_fields` is a per-entity JSON map used to prevent AI regeneration from overwriting approved content.
+- `seller_accounts.capabilities` caches the CBT site check and the official `user_product_seller` tag result.
+- Category requirements are always read from Mercado Libre at preflight time; required enumerations are not hard-coded.
+- `/global/user-products/families` output is a review candidate only. It is not transmitted until picture handling, returned account metadata and the user's second confirmation have all passed.
+- Each remote preflight creates redacted `publish_jobs` summaries for MLM, MCO and MLC so failures remain auditable.
 
 ## OAuth and token lifecycle
 
