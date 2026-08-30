@@ -1,6 +1,6 @@
 # Appsmith UI
 
-The API contract for the first four pages is stable in v0.3.0. Configure the queries in [API_QUERIES.md](API_QUERIES.md); an Appsmith export is produced after the datasource base URL and Appsmith version on the deployment server are known.
+The API contract for the first four pages is stable in v0.4.0. Configure the queries in [API_QUERIES.md](API_QUERIES.md); an Appsmith export is produced after the datasource base URL and Appsmith version on the deployment server are known.
 
 Planned pages:
 

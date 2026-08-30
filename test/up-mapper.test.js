@@ -48,3 +48,28 @@ test('preflight rejects duplicate Seller SKU', () => {
   const result = preflightProductFamily({ product, variants: duplicate, listings, mediaByVariant });
   assert.ok(result.errors.some((error) => error.code === 'duplicate_sku'));
 });
+
+test('structured color images require one exclusive publishable primary per variant', () => {
+  const structuredMedia = Object.fromEntries(variants.map((variant) => [variant.id, [{
+    id: `media-${variant.id}`,
+    externalUrl: `https://images.example/${variant.id}.jpg`,
+    isPrimary: true,
+    validationStatus: 'ready'
+  }]]));
+  const complete = preflightProductFamily({ product, variants, listings, mediaByVariant: structuredMedia });
+  assert.equal(complete.valid, true);
+
+  structuredMedia['variant-6'][0].id = structuredMedia['variant-1'][0].id;
+  const duplicatePrimary = preflightProductFamily({ product, variants, listings, mediaByVariant: structuredMedia });
+  assert.ok(duplicatePrimary.errors.some((error) => error.code === 'shared_primary_variant_image'));
+});
+
+test('variant pricing must cover every selected variant for each site', () => {
+  const partialListings = listings.map((listing) => ({
+    ...listing,
+    variantPrices: Object.fromEntries(variants.slice(0, 5).map((variant) => [variant.id, listing.price]))
+  }));
+  const result = preflightProductFamily({ product, variants, listings: partialListings, mediaByVariant });
+  assert.equal(result.errors.filter((error) => error.code === 'missing_variant_price').length, 3);
+  assert.ok(result.errors.every((error) => error.variantId !== 'variant-1' || error.code !== 'missing_variant_price'));
+});
