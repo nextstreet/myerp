@@ -68,7 +68,7 @@ export function loadConfig() {
     throw new Error('APP_API_KEY must contain at least 32 characters in production');
   }
   if (config.storage.driver !== 'local') {
-    throw new Error('Only local storage is implemented in v0.3.0');
+    throw new Error('Only local storage is implemented in v0.4.0');
   }
   const meliValues = [
     config.mercadoLibre.clientId,

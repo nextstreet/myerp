@@ -5,6 +5,7 @@ export function preflightProductFamily({ product, variants, listings = [], media
   const warnings = [];
   const selected = variants.filter((variant) => variant.participateInPublish !== false);
   const skuCounts = new Map();
+  const primaryMediaOwners = new Map();
 
   for (const variant of selected) {
     const sku = String(variant.sellerSku ?? '').trim();
@@ -15,6 +16,24 @@ export function preflightProductFamily({ product, variants, listings = [], media
     }
     const images = mediaByVariant[variant.id] ?? variant.images ?? [];
     if (!images.length) errors.push({ code: 'missing_variant_image', variantId: variant.id, sellerSku: sku });
+    const structuredImages = images.filter((image) => image && typeof image === 'object');
+    if (structuredImages.length) {
+      const primary = structuredImages.find((image) => image.isPrimary === true);
+      if (!primary) errors.push({ code: 'missing_primary_variant_image', variantId: variant.id, sellerSku: sku });
+      else {
+        const mediaId = primary.id ?? primary.mediaId;
+        const previousOwner = primaryMediaOwners.get(mediaId);
+        if (previousOwner && previousOwner !== variant.id) {
+          errors.push({ code: 'shared_primary_variant_image', mediaId, variantIds: [previousOwner, variant.id] });
+        } else if (mediaId) primaryMediaOwners.set(mediaId, variant.id);
+      }
+      if (!structuredImages.some((image) => image.externalUrl || image.mercadoPictureId)) {
+        errors.push({ code: 'variant_image_not_publishable', variantId: variant.id, sellerSku: sku });
+      }
+      if (structuredImages.some((image) => image.validationStatus === 'rejected')) {
+        errors.push({ code: 'rejected_variant_image', variantId: variant.id, sellerSku: sku });
+      }
+    }
   }
 
   for (const [sku, count] of skuCounts) {
@@ -26,7 +45,18 @@ export function preflightProductFamily({ product, variants, listings = [], media
     if (!SITE_NAMES[listing.site]) errors.push({ code: 'unsupported_site', site: listing.site });
     if (!listing.title) errors.push({ code: 'missing_title', site: listing.site });
     if (!listing.categoryId) warnings.push({ code: 'missing_category', site: listing.site });
-    if (!listing.price && !listing.variantPrices) errors.push({ code: 'missing_price', site: listing.site });
+    const variantPrices = listing.variantPrices ?? {};
+    const hasVariantPrices = Object.keys(variantPrices).length > 0;
+    if (hasVariantPrices) {
+      for (const variant of selected) {
+        const price = Number(variantPrices[variant.id]);
+        if (!Number.isFinite(price) || price <= 0) {
+          errors.push({ code: 'missing_variant_price', site: listing.site, variantId: variant.id, sellerSku: variant.sellerSku });
+        }
+      }
+    } else if (!Number.isFinite(Number(listing.price)) || Number(listing.price) <= 0) {
+      errors.push({ code: 'missing_price', site: listing.site });
+    }
   }
 
   const targetSites = product.targetSites ?? ['MLM', 'MCO', 'MLC'];
@@ -44,7 +74,11 @@ export function preflightProductFamily({ product, variants, listings = [], media
       targetSites,
       variantCount: selected.length,
       listingCount: listings.length,
-      imageCount: new Set(selected.flatMap((variant) => mediaByVariant[variant.id] ?? variant.images ?? [])).size
+      imageCount: new Set(selected.flatMap((variant) =>
+        (mediaByVariant[variant.id] ?? variant.images ?? []).map((image) =>
+          image && typeof image === 'object' ? image.id ?? image.mediaId : image
+        )
+      )).size
     },
     errors,
     warnings

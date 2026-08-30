@@ -42,7 +42,8 @@ async function loadFamily(db, productId) {
       JOIN listings l ON l.id=lv.listing_id WHERE l.product_id=$1
     `, [productId]),
     db.query(`
-      SELECT vm.variant_id, pm.id AS media_id,pm.external_url,pm.storage_key
+      SELECT vm.variant_id,vm.is_primary,pm.id AS media_id,pm.external_url,pm.storage_key,
+        pm.mercado_picture_id,pm.validation_status
       FROM variant_media vm
       JOIN product_media pm ON pm.id = vm.media_id
       JOIN variants v ON v.id = vm.variant_id
@@ -60,7 +61,10 @@ async function loadFamily(db, productId) {
   for (const row of mediaResult.rows) (mediaByVariant[row.variant_id] ??= []).push({
     id: row.media_id,
     externalUrl: row.external_url,
-    storageKey: row.storage_key
+    storageKey: row.storage_key,
+    mercadoPictureId: row.mercado_picture_id,
+    validationStatus: row.validation_status,
+    isPrimary: row.is_primary
   });
   const pricesBySite = {};
   for (const row of listingVariantResult.rows) {
@@ -198,7 +202,7 @@ export async function publishRoutes(app) {
       error.statusCode = 403;
       throw error;
     }
-    const error = new Error('Official site-specific UP publishing adapter is not enabled in v0.3.0');
+    const error = new Error('Official site-specific UP publishing adapter is not enabled in v0.4.0');
     error.statusCode = 501;
     error.code = 'publishing_adapter_pending';
     throw error;

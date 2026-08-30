@@ -76,4 +76,25 @@ export async function mercadoLibreRoutes(app) {
     }
     return app.mercadoLibreOAuth.categoryRequirements(request.params.accountId, categoryIds.map(String));
   });
+
+  app.post('/api/integrations/mercadolibre/accounts/:accountId/category-discovery', async (request) => {
+    if (!app.mercadoLibreOAuth) throw unavailable();
+    const query = String(request.body?.query ?? '').trim();
+    const sites = request.body?.sites ?? ['MLM', 'MCO', 'MLC'];
+    const limit = Math.min(Math.max(Number(request.body?.limit ?? 5), 1), 10);
+    const allowedSites = new Set(['MLM', 'MCO', 'MLC']);
+    if (query.length < 2 || query.length > 200) {
+      const error = new Error('query must contain between 2 and 200 characters');
+      error.statusCode = 400;
+      error.code = 'validation_error';
+      throw error;
+    }
+    if (!Array.isArray(sites) || !sites.length || sites.some((site) => !allowedSites.has(site))) {
+      const error = new Error('sites contains an unsupported site');
+      error.statusCode = 400;
+      error.code = 'validation_error';
+      throw error;
+    }
+    return app.mercadoLibreOAuth.discoverCategories(request.params.accountId, { query, sites, limit });
+  });
 }

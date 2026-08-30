@@ -21,6 +21,7 @@ const LISTING_REVIEW_FIELDS = [
   'currency', 'targetProfitUsd', 'targetMarginRate', 'pricingBasis'
 ];
 const SITE_CURRENCIES = Object.freeze({ MLM: 'MXN', MCO: 'COP', MLC: 'CLP' });
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function badRequest(message, details) {
   const error = new Error(message);
@@ -112,6 +113,20 @@ function listingRow(row) {
   };
 }
 
+function listingVariantRow(row) {
+  return {
+    id: row.id,
+    listingId: row.listing_id,
+    variantId: row.variant_id,
+    price: Number(row.price),
+    promotionalPrice: row.promotional_price === null ? null : Number(row.promotional_price),
+    currency: row.currency,
+    pricingBasis: row.pricing_basis ?? {},
+    mercadoLibreUserProductId: row.mercado_libre_user_product_id,
+    mercadoPayload: row.mercado_payload ?? {}
+  };
+}
+
 function validateReviewValues(values, type) {
   const errors = [];
   if (type === 'product') {
@@ -154,18 +169,29 @@ export async function productsRoutes(app) {
   });
 
   app.get('/:id', async (request, reply) => {
-    const [productResult, variantResult, listingResult, mediaResult] = await Promise.all([
+    const [productResult, variantResult, listingResult, listingVariantResult, mediaResult, variantMediaResult] = await Promise.all([
       app.db.query('SELECT * FROM products WHERE id = $1', [request.params.id]),
       app.db.query('SELECT * FROM variants WHERE product_id = $1 ORDER BY created_at', [request.params.id]),
       app.db.query('SELECT * FROM listings WHERE product_id = $1 ORDER BY site', [request.params.id]),
-      app.db.query('SELECT * FROM product_media WHERE product_id = $1 ORDER BY sort_order, created_at', [request.params.id])
+      app.db.query(`
+        SELECT lv.* FROM listing_variants lv
+        JOIN listings l ON l.id=lv.listing_id
+        WHERE l.product_id=$1 ORDER BY l.site,lv.variant_id
+      `, [request.params.id]),
+      app.db.query('SELECT * FROM product_media WHERE product_id = $1 ORDER BY sort_order, created_at', [request.params.id]),
+      app.db.query(`
+        SELECT vm.* FROM variant_media vm JOIN variants v ON v.id=vm.variant_id
+        WHERE v.product_id=$1 ORDER BY vm.variant_id,vm.sort_order
+      `, [request.params.id])
     ]);
     if (!productResult.rowCount) return reply.code(404).send({ error: 'product_not_found' });
     return {
       ...productRow(productResult.rows[0]),
       variants: variantResult.rows.map(variantRow),
       listings: listingResult.rows.map(listingRow),
-      media: mediaResult.rows
+      listingVariants: listingVariantResult.rows.map(listingVariantRow),
+      media: mediaResult.rows,
+      variantMedia: variantMediaResult.rows
     };
   });
 
@@ -308,6 +334,50 @@ export async function productsRoutes(app) {
       merged.values.targetProfitUsd, merged.values.targetMarginRate, merged.values.pricingBasis ?? {}]);
     if (!result.rowCount) return reply.code(404).send({ error: 'product_not_found' });
     return { listing: listingRow(result.rows[0]), ignoredConfirmedFields: merged.ignoredConfirmedFields };
+  });
+
+  app.put('/:id/listings/:site/prices', async (request, reply) => {
+    const site = request.params.site;
+    if (!SITE_CODES.has(site)) throw badRequest('Unsupported site');
+    const prices = request.body?.prices;
+    if (!Array.isArray(prices) || !prices.length) throw badRequest('prices must be a non-empty array');
+    const ids = prices.map((item) => String(item.variantId ?? ''));
+    if (ids.some((id) => !UUID_PATTERN.test(id)) || new Set(ids).size !== ids.length) {
+      throw badRequest('variantId must be a valid unique UUID');
+    }
+    for (const item of prices) {
+      const price = Number(item.price);
+      const promotion = item.promotionalPrice === null || item.promotionalPrice === undefined
+        ? null : Number(item.promotionalPrice);
+      if (!Number.isFinite(price) || price <= 0) throw badRequest('price must be positive');
+      if (promotion !== null && (!Number.isFinite(promotion) || promotion <= 0 || promotion > price)) {
+        throw badRequest('promotionalPrice must be positive and no greater than price');
+      }
+    }
+    const rows = await withTransaction(app.db, async (client) => {
+      const listing = await client.query('SELECT id,currency FROM listings WHERE product_id=$1 AND site=$2 FOR UPDATE', [request.params.id, site]);
+      if (!listing.rowCount) return null;
+      const variants = await client.query('SELECT id FROM variants WHERE product_id=$1 AND id=ANY($2::uuid[])', [request.params.id, ids]);
+      if (variants.rowCount !== ids.length) throw badRequest('One or more variants do not belong to the product');
+      const saved = [];
+      for (const item of prices) {
+        const result = await client.query(`
+          INSERT INTO listing_variants (
+            listing_id,variant_id,price,promotional_price,currency,pricing_basis
+          ) VALUES ($1,$2,$3,$4,$5,$6)
+          ON CONFLICT (listing_id,variant_id) DO UPDATE SET
+            price=EXCLUDED.price,promotional_price=EXCLUDED.promotional_price,
+            currency=EXCLUDED.currency,pricing_basis=EXCLUDED.pricing_basis
+          RETURNING *
+        `, [listing.rows[0].id, item.variantId, Number(item.price),
+          item.promotionalPrice === null || item.promotionalPrice === undefined ? null : Number(item.promotionalPrice),
+          listing.rows[0].currency, item.pricingBasis ?? {}]);
+        saved.push(listingVariantRow(result.rows[0]));
+      }
+      return saved;
+    });
+    if (!rows) return reply.code(404).send({ error: 'listing_not_found' });
+    return { site, currency: rows[0].currency, prices: rows };
   });
 
   app.post('/:id/confirmations', async (request, reply) => {

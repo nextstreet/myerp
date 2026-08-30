@@ -3,6 +3,7 @@ import { mkdir, stat, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { extname, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { withTransaction } from '../db/pool.js';
 
 function mediaType(mimeType, filename) {
   if (mimeType?.startsWith('image/')) return 'image';
@@ -98,29 +99,48 @@ export async function mediaRoutes(app) {
   });
 
   app.post('/:productId/variants/:variantId/media/:mediaId', async (request, reply) => {
-    const result = await app.db.query(`
-      INSERT INTO variant_media (variant_id, media_id, sort_order)
-      SELECT v.id, pm.id, $4
-      FROM variants v
-      JOIN product_media pm ON pm.product_id = v.product_id
-      WHERE v.id = $1 AND pm.id = $2 AND v.product_id = $3
-      ON CONFLICT (variant_id, media_id) DO UPDATE SET sort_order = EXCLUDED.sort_order
-      RETURNING *
-    `, [request.params.variantId, request.params.mediaId, request.params.productId, request.body?.sortOrder ?? 0]);
+    const isPrimary = request.body?.isPrimary === true;
+    const result = await withTransaction(app.db, async (client) => {
+      const valid = await client.query(`
+        SELECT 1 FROM variants v JOIN product_media pm ON pm.product_id=v.product_id
+        WHERE v.id=$1 AND pm.id=$2 AND v.product_id=$3 AND pm.media_type='image'
+      `, [request.params.variantId, request.params.mediaId, request.params.productId]);
+      if (!valid.rowCount) return { rowCount: 0, rows: [] };
+      if (isPrimary) await client.query('UPDATE variant_media SET is_primary=false WHERE variant_id=$1', [request.params.variantId]);
+      return client.query(`
+        INSERT INTO variant_media (variant_id, media_id, sort_order, is_primary)
+        SELECT v.id, pm.id, $4, $5
+        FROM variants v
+        JOIN product_media pm ON pm.product_id = v.product_id
+        WHERE v.id = $1 AND pm.id = $2 AND v.product_id = $3 AND pm.media_type='image'
+        ON CONFLICT (variant_id, media_id) DO UPDATE SET
+          sort_order = EXCLUDED.sort_order,is_primary=EXCLUDED.is_primary
+        RETURNING *
+      `, [request.params.variantId, request.params.mediaId, request.params.productId,
+        request.body?.sortOrder ?? 0, isPrimary]);
+    });
     if (!result.rowCount) return reply.code(404).send({ error: 'variant_or_media_not_found' });
     return result.rows[0];
   });
 
   app.patch('/:productId/media/:mediaId', async (request, reply) => {
+    const allowedStatuses = new Set(['pending', 'ready', 'rejected']);
+    if (request.body?.validationStatus && !allowedStatuses.has(request.body.validationStatus)) {
+      return reply.code(400).send({ error: 'unsupported_validation_status' });
+    }
     const result = await app.db.query(`
       UPDATE product_media SET
         role=COALESCE($3,role), sort_order=COALESCE($4,sort_order),
         prompt=CASE WHEN $5::boolean THEN $6 ELSE prompt END,
-        alt_text=CASE WHEN $7::boolean THEN $8 ELSE alt_text END
+        alt_text=CASE WHEN $7::boolean THEN $8 ELSE alt_text END,
+        mercado_picture_id=CASE WHEN $9::boolean THEN $10 ELSE mercado_picture_id END,
+        validation_status=COALESCE($11,validation_status)
       WHERE id=$1 AND product_id=$2 RETURNING *
     `, [request.params.mediaId, request.params.productId, request.body?.role ?? null,
       request.body?.sortOrder ?? null, Object.hasOwn(request.body ?? {}, 'prompt'), request.body?.prompt ?? null,
-      Object.hasOwn(request.body ?? {}, 'altText'), request.body?.altText ?? null]);
+      Object.hasOwn(request.body ?? {}, 'altText'), request.body?.altText ?? null,
+      Object.hasOwn(request.body ?? {}, 'mercadoPictureId'), request.body?.mercadoPictureId ?? null,
+      request.body?.validationStatus ?? null]);
     if (!result.rowCount) return reply.code(404).send({ error: 'media_not_found' });
     return result.rows[0];
   });

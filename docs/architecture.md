@@ -46,6 +46,14 @@ The internal UP draft intentionally does not pretend to be the final Mercado Lib
 - `/global/user-products/families` output is a review candidate only. It is not transmitted until picture handling, returned account metadata and the user's second confirmation have all passed.
 - Each remote preflight creates redacted `publish_jobs` summaries for MLM, MCO and MLC so failures remain auditable.
 
+## v0.4 listing-readiness boundary
+
+- `listing_variants` stores normal price, optional promotional price, currency and the editable calculation basis for every site/variant pair.
+- Category discovery is account-authenticated and site-specific. Suggestions are returned to the operator but never selected automatically.
+- `variant_media.is_primary` identifies exactly one color-defining image per variant. A partial unique index prevents two primary rows for one variant.
+- Local preflight rejects missing primaries, one primary reused across different variants, rejected media and images with no publishable URL or Mercado Libre picture ID.
+- Picture ID storage is prepared, but this release does not upload pictures to Mercado Libre without a separately confirmed action.
+
 ## OAuth and token lifecycle
 
 - The browser receives only a short-lived Global Selling authorization URL.

@@ -285,6 +285,28 @@ export class MercadoLibreOAuthService {
     return { ok: categories.every((category) => category.ok), categories };
   }
 
+  async discoverCategories(accountId, { query, sites = ['MLM', 'MCO', 'MLC'], limit = 5 }) {
+    const results = [];
+    for (const site of sites) {
+      const path = `/sites/${site}/domain_discovery/search?q=${encodeURIComponent(query)}&limit=${limit}`;
+      const response = await this.authenticatedRequest(accountId, path);
+      const suggestions = Array.isArray(response.payload) ? response.payload : [];
+      results.push({
+        site,
+        ok: response.ok,
+        httpStatus: response.status,
+        suggestions: suggestions.map((item) => ({
+          domainId: item.domain_id ?? null,
+          domainName: item.domain_name ?? null,
+          categoryId: item.category_id ?? null,
+          categoryName: item.category_name ?? null,
+          attributes: item.attributes ?? []
+        }))
+      });
+    }
+    return { ok: results.every((result) => result.ok), query, results };
+  }
+
   async smokeTest(accountId) {
     const checks = [];
     const request = async (name, path) => {
