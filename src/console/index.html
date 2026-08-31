@@ -144,6 +144,17 @@
           <div class="panel media-toolbar"><input id="mediaFile" type="file" accept="image/*" multiple><select id="mediaRole"><option value="original">原图</option><option value="white_background">白底图</option><option value="dimension">尺寸图</option><option value="feature">功能图</option><option value="scene">场景图</option></select><button id="uploadMedia" class="button secondary">批量上传图片</button></div>
           <div id="mediaGrid" class="media-grid"></div>
 
+          <div class="section-heading"><div><p class="eyebrow">EXISTING ITEMS</p><h3>现有黑色刊登校准</h3></div><button id="inspectExistingItems" class="button secondary">只读获取</button></div>
+          <div class="panel item-inspector">
+            <label>Colombia Item ID<input id="existingItemMCO" type="text" placeholder="例如 MCO4393187474" maxlength="18"></label>
+            <label>Chile Item ID<input id="existingItemMLC" type="text" placeholder="例如 MLC4426912152" maxlength="18"></label>
+            <p class="muted span-all">仅读取当前授权账号拥有的明确Item，不列出店铺商品，不修改现有刊登。</p>
+          </div>
+          <div id="itemInspectionResults" class="result-grid hidden">
+            <article class="panel"><div class="panel-title"><h3>Colombia</h3><span id="itemInspectionBadgeMCO" class="status-pill">尚未读取</span></div><pre id="itemInspectionMCO">{}</pre></article>
+            <article class="panel"><div class="panel-title"><h3>Chile</h3><span id="itemInspectionBadgeMLC" class="status-pill">尚未读取</span></div><pre id="itemInspectionMLC">{}</pre></article>
+          </div>
+
           <div class="section-heading"><div><p class="eyebrow">COUNTRY LISTINGS</p><h3>三国刊登资料与报价</h3></div><button id="discoverCategories" class="button accent">查询三国类目建议</button></div>
           <div id="categorySuggestions" class="suggestions hidden"></div>
           <div class="panel quote-panel">

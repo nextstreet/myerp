@@ -630,6 +630,53 @@ async function accountId() {
   return state.accounts[0].id;
 }
 
+function itemInspectionSummary(data) {
+  const item = data.item || {};
+  const userProduct = data.userProduct || {};
+  return {
+    itemId: item.id || null,
+    siteId: item.siteId || null,
+    status: item.status || null,
+    title: item.title || null,
+    categoryId: item.categoryId || null,
+    price: item.price || null,
+    currencyId: item.currencyId || null,
+    availableQuantity: item.availableQuantity ?? null,
+    sellerSku: item.sellerCustomField || null,
+    userProductId: item.userProductId || null,
+    familyId: userProduct.familyId || null,
+    familyName: userProduct.familyName || item.familyName || null,
+    attributes: item.attributes || [],
+    description: data.description?.plainText || null,
+    pictures: item.pictures || [],
+    lookups: data.lookups || {}
+  };
+}
+
+async function inspectExistingItems() {
+  const requested = ['MCO', 'MLC'].map((site) => ({
+    site,
+    itemId: $(`existingItem${site}`).value.trim().toUpperCase()
+  })).filter((item) => item.itemId);
+  if (!requested.length) return toast('请至少填写一个Item ID', true);
+  try {
+    const id = await accountId();
+    $('itemInspectionResults').classList.remove('hidden');
+    for (const request of requested) {
+      const badge = $(`itemInspectionBadge${request.site}`);
+      badge.textContent = '读取中'; badge.className = 'status-pill';
+      try {
+        const data = await api(`/api/integrations/mercadolibre/accounts/${id}/items/${encodeURIComponent(request.itemId)}`);
+        $(`itemInspection${request.site}`).textContent = JSON.stringify(itemInspectionSummary(data), null, 2);
+        badge.textContent = '读取成功'; badge.className = 'status-pill good';
+      } catch (error) {
+        $(`itemInspection${request.site}`).textContent = JSON.stringify({ error: error.message }, null, 2);
+        badge.textContent = '读取失败'; badge.className = 'status-pill bad';
+      }
+    }
+  } catch (error) { toast(error.message, true); }
+}
+
 async function discoverCategories() {
   if (!state.review) return;
   try {
@@ -719,6 +766,7 @@ $('generateImagePlan').addEventListener('click', generateImagePlan);
 $('generateWhiteBackground').addEventListener('click', generateWhiteBackground);
 $('reviewProductSelect').addEventListener('change', (event) => loadReview(event.target.value)); $('reloadReview').addEventListener('click', () => loadReview($('reviewProductSelect').value));
 $('uploadMedia').addEventListener('click', uploadMedia); $('discoverCategories').addEventListener('click', discoverCategories); $('markPendingPublish').addEventListener('click', markPendingPublish);
+$('inspectExistingItems').addEventListener('click', inspectExistingItems);
 $('calculateQuotes').addEventListener('click', calculateQuotes);
 $('publishProductSelect').addEventListener('change', loadJobs); $('runLocalPreflight').addEventListener('click', runLocalPreflight); $('runRemotePreflight').addEventListener('click', runRemotePreflight); $('refreshJobs').addEventListener('click', loadJobs);
 $('copyPreview').addEventListener('click', async () => { await navigator.clipboard.writeText(JSON.stringify(state.preview, null, 2)); toast('JSON 已复制'); });
