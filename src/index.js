@@ -1,5 +1,5 @@
 import { loadConfig } from './config.js';
-import { createPool } from './db/pool.js';
+import { createPool, registerSiteCodeArrayParser } from './db/pool.js';
 import { MercadoLibreApiClient } from './integrations/mercadolibre/client.js';
 import { MercadoLibreOAuthService } from './integrations/mercadolibre/oauth-service.js';
 import { TokenCipher } from './integrations/mercadolibre/token-cipher.js';
@@ -9,6 +9,9 @@ import { ConsoleSessionService } from './auth/console-session.js';
 
 const config = loadConfig();
 const pool = createPool(config);
+// Register the site_code[] array parser before the server accepts requests so
+// target_sites is always returned as a real JS array (no first-query race).
+await registerSiteCodeArrayParser(pool);
 const mercadoLibreOAuth = config.mercadoLibre.configured
   ? new MercadoLibreOAuthService({
       config: config.mercadoLibre,

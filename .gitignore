@@ -9,3 +9,4 @@ coverage/
 .idea/
 .vscode/
 dist/
+.console-password.txt

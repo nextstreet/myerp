@@ -59,7 +59,12 @@ export function preflightProductFamily({ product, variants, listings = [], media
     }
   }
 
-  const targetSites = product.targetSites ?? ['MLM', 'MCO', 'MLC'];
+  // Normalize targetSites: node-postgres may deliver the enum[] column as a
+  // text literal like "{MLM,MCO,MLC}"; ensure we always iterate a real array.
+  const rawSites = product.targetSites ?? ['MLM', 'MCO', 'MLC'];
+  const targetSites = Array.isArray(rawSites)
+    ? rawSites
+    : String(rawSites).replace(/^\{|\}$/g, '').split(',').map((s) => s.trim()).filter(Boolean);
   for (const site of targetSites) {
     if (!listings.some((listing) => listing.site === site)) {
       errors.push({ code: 'missing_site_listing', site });
