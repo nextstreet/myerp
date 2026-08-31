@@ -68,10 +68,13 @@ export function normalizeItemInspection({ item, description, userProduct, userPr
       subStatus: item.sub_status ?? [],
       categoryId: item.category_id ?? null,
       sellerId: item.seller_id === undefined ? null : String(item.seller_id),
+      ownerId: item.owner_id === undefined ? null : String(item.owner_id),
+      cbtItemId: item.cbt_item_id ?? (item.site_id === 'CBT' ? item.id : null),
       listingTypeId: item.listing_type_id ?? null,
       currencyId: item.currency_id ?? null,
       price: item.price ?? null,
       basePrice: item.base_price ?? null,
+      netProceeds: item.net_proceeds ?? null,
       availableQuantity: item.available_quantity ?? null,
       soldQuantity: item.sold_quantity ?? null,
       permalink: item.permalink ?? null,
@@ -374,7 +377,7 @@ export class MercadoLibreOAuthService {
 
     const itemResponse = await this.authenticatedRequest(
       accountId,
-      `/items/${encodeURIComponent(itemId)}?include_attributes=all`
+      `/marketplace/items/${encodeURIComponent(itemId)}?include_attributes=all`
     );
     if (!itemResponse.ok || !itemResponse.payload?.id) {
       const status = itemResponse.status >= 400 && itemResponse.status < 500 ? itemResponse.status : 502;
@@ -382,14 +385,40 @@ export class MercadoLibreOAuthService {
     }
 
     const item = itemResponse.payload;
-    if (String(item.seller_id ?? '') !== String(account.rows[0].meli_user_id)) {
-      throw oauthError('The requested item does not belong to the connected seller account', 'meli_item_not_owned', 403);
+    const connectedSellerId = String(account.rows[0].meli_user_id);
+    const ownerId = String(item.owner_id ?? '');
+    const sellerId = String(item.seller_id ?? '');
+    if (ownerId && ownerId !== connectedSellerId) {
+      throw oauthError('The requested item does not belong to the connected Global Selling account', 'meli_item_not_owned', 403);
+    }
+    if (!ownerId && sellerId !== connectedSellerId) {
+      const marketplacesResponse = await this.authenticatedRequest(
+        accountId,
+        `/marketplace/users/${encodeURIComponent(connectedSellerId)}`
+      );
+      const marketplaceSellerIds = Array.isArray(marketplacesResponse.payload?.marketplaces)
+        ? marketplacesResponse.payload.marketplaces.map((marketplace) => String(marketplace.user_id))
+        : [];
+      if (!marketplacesResponse.ok || !marketplaceSellerIds.includes(sellerId)) {
+        throw oauthError('The requested item does not belong to the connected Global Selling account', 'meli_item_not_owned', 403);
+      }
     }
 
     const descriptionResponse = await this.authenticatedRequest(
       accountId,
       `/items/${encodeURIComponent(itemId)}/description`
     );
+    const inlineDescription = Array.isArray(item.descriptions)
+      ? item.descriptions.find((entry) => entry?.plain_text || entry?.description?.plain_text)
+      : null;
+    const description = descriptionResponse.ok
+      ? descriptionResponse.payload
+      : inlineDescription
+        ? {
+            plain_text: inlineDescription.plain_text ?? inlineDescription.description?.plain_text ?? null,
+            last_updated: inlineDescription.last_updated ?? null
+          }
+        : null;
     let userProductResponse = null;
     if (item.user_product_id) {
       userProductResponse = await this.authenticatedRequest(
@@ -400,7 +429,7 @@ export class MercadoLibreOAuthService {
 
     return normalizeItemInspection({
       item,
-      description: descriptionResponse.ok ? descriptionResponse.payload : null,
+      description,
       userProduct: userProductResponse?.ok ? userProductResponse.payload : null,
       userProductStatus: item.user_product_id
         ? `http_${userProductResponse?.status ?? 'unknown'}`
