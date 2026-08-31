@@ -2,9 +2,9 @@
 
 美客多AI上架工作台：一个面向 Mexico、Colombia、Chile 的轻量级商品资料、AI文案、图片、报价、UP多规格和官方API发布工作台。
 
-> Current stage: `v0.4.0 listing readiness`. OAuth and token rotation passed against the connected CBT account. Review editing, independent variant/site pricing, three-site category discovery, strict color-image readiness and read-only remote preflight are implemented. Live publishing remains disabled.
+> Current stage: `v0.5.0 visual console`. A secure, server-hosted visual workbench is available at `/console` for product import, six-variant review, media association, transparent three-site pricing and read-only publish preflight. Live publishing remains disabled.
 
-## Included in v0.4.0
+## Included in v0.5.0
 
 - PostgreSQL schema for products, variants, media, listings, listing variants and idempotent publish jobs.
 - Product creation/list/detail/status APIs.
@@ -31,6 +31,10 @@
 - Three-site category prediction through authenticated domain discovery without auto-selecting a category.
 - One explicit primary image per variant; reused color-primary images are rejected by preflight.
 - Mercado Libre picture IDs and image validation state can be recorded after a separate approved upload step.
+- Responsive four-page visual console: products, import, review/pricing, and publish preflight/logs.
+- Password login with scrypt hash, signed HttpOnly/SameSite session cookie, strict origin checks and login throttling.
+- Browser requests never receive or store `APP_API_KEY`, OAuth tokens, Client Secret or token-encryption keys.
+- Visual three-site quote calculator that exposes every input and fills normal/promotional variant prices for human approval.
 
 ## Quick start
 
@@ -86,7 +90,17 @@ When `APP_API_KEY` is configured, send it as `X-API-Key` for every `/api/*` requ
 | GET | `/api/publish/:productId/global-up-preview` | Preview the unsent Global UP Family candidate |
 | POST | `/api/publish/:productId/remote-preflight` | Read-only account/category preflight; never publishes |
 | GET | `/api/publish/jobs` | Review preflight/publish job summaries and errors |
-| POST | `/api/publish/:productId/live` | Safety-gated placeholder; no live publishing in v0.4.0 |
+| POST | `/api/publish/:productId/live` | Safety-gated placeholder; no live publishing in v0.5.0 |
+
+## Visual console
+
+The built-in console is deliberately independent of Appsmith's version-specific export format. It uses the same API and can later be retained alongside or embedded into Appsmith. See [docs/console.md](docs/console.md) for secure setup and operation.
+
+After configuration, open:
+
+```text
+https://mercado.cybertao.space/console
+```
 
 ## Security
 

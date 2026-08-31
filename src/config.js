@@ -48,6 +48,12 @@ export function loadConfig() {
       apiKey: process.env.AI_API_KEY ?? '',
       model: process.env.AI_MODEL ?? ''
     },
+    console: {
+      passwordHash: process.env.CONSOLE_PASSWORD_HASH ?? '',
+      sessionSecret: process.env.CONSOLE_SESSION_SECRET ?? '',
+      publicUrl: optionalUrl('CONSOLE_PUBLIC_URL'),
+      sessionTtlSeconds: integer('CONSOLE_SESSION_TTL_SECONDS', 28800)
+    },
     mercadoLibre: {
       clientId: process.env.MELI_CLIENT_ID ?? '',
       clientSecret: process.env.MELI_CLIENT_SECRET ?? '',
@@ -68,7 +74,16 @@ export function loadConfig() {
     throw new Error('APP_API_KEY must contain at least 32 characters in production');
   }
   if (config.storage.driver !== 'local') {
-    throw new Error('Only local storage is implemented in v0.4.0');
+    throw new Error('Only local storage is implemented in v0.5.0');
+  }
+  const consoleValues = [config.console.passwordHash, config.console.sessionSecret, config.console.publicUrl];
+  config.console.configured = consoleValues.every(Boolean);
+  if (consoleValues.some(Boolean) && !config.console.configured) {
+    throw new Error('CONSOLE_PASSWORD_HASH, CONSOLE_SESSION_SECRET and CONSOLE_PUBLIC_URL must be configured together');
+  }
+  if (config.console.configured) {
+    const consoleKey = Buffer.from(config.console.sessionSecret, 'base64');
+    if (consoleKey.length !== 32) throw new Error('CONSOLE_SESSION_SECRET must be a base64-encoded 32-byte key');
   }
   const meliValues = [
     config.mercadoLibre.clientId,

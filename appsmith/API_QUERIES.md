@@ -1,4 +1,4 @@
-# Appsmith v0.4 query wiring
+# Appsmith v0.5 optional query wiring
 
 Create one authenticated REST datasource whose base URL is the public API origin. Add `X-API-Key` as a server-side datasource header. Never store Mercado Libre credentials in Appsmith widgets, JavaScript objects or query bodies.
 
