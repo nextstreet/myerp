@@ -46,7 +46,13 @@ export function loadConfig() {
       provider: process.env.AI_PROVIDER ?? 'disabled',
       baseUrl: process.env.AI_BASE_URL ?? '',
       apiKey: process.env.AI_API_KEY ?? '',
-      model: process.env.AI_MODEL ?? ''
+      model: process.env.AI_MODEL ?? '',
+      visionModel: process.env.AI_VISION_MODEL ?? process.env.AI_MODEL ?? '',
+      imageModel: process.env.AI_IMAGE_MODEL ?? '',
+      requestTimeoutMs: integer('AI_REQUEST_TIMEOUT_MS', 120000),
+      maxInputImages: integer('AI_MAX_INPUT_IMAGES', 8),
+      maxInputImageBytes: integer('AI_MAX_INPUT_IMAGE_BYTES', 5_000_000),
+      generatedImageSize: process.env.AI_GENERATED_IMAGE_SIZE ?? '1024x1024'
     },
     console: {
       passwordHash: process.env.CONSOLE_PASSWORD_HASH ?? '',
@@ -74,7 +80,20 @@ export function loadConfig() {
     throw new Error('APP_API_KEY must contain at least 32 characters in production');
   }
   if (config.storage.driver !== 'local') {
-    throw new Error('Only local storage is implemented in v0.5.0');
+    throw new Error('Only local storage is implemented in v0.6.0');
+  }
+  const supportedAiProviders = new Set(['disabled', 'openai-compatible']);
+  if (!supportedAiProviders.has(config.ai.provider)) throw new Error(`Unsupported AI_PROVIDER: ${config.ai.provider}`);
+  config.ai.configured = config.ai.provider !== 'disabled'
+    && Boolean(config.ai.baseUrl && config.ai.apiKey && config.ai.model);
+  if (config.ai.provider !== 'disabled' && !config.ai.configured) {
+    throw new Error('AI_BASE_URL, AI_API_KEY and AI_MODEL are required when AI_PROVIDER is enabled');
+  }
+  if (config.ai.maxInputImages < 1 || config.ai.maxInputImages > 20) {
+    throw new Error('AI_MAX_INPUT_IMAGES must be between 1 and 20');
+  }
+  if (!/^\d+x\d+$/.test(config.ai.generatedImageSize)) {
+    throw new Error('AI_GENERATED_IMAGE_SIZE must use WIDTHxHEIGHT format');
   }
   const consoleValues = [config.console.passwordHash, config.console.sessionSecret, config.console.publicUrl];
   config.console.configured = consoleValues.every(Boolean);

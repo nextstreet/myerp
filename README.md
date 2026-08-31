@@ -2,9 +2,19 @@
 
 美客多AI上架工作台：一个面向 Mexico、Colombia、Chile 的轻量级商品资料、AI文案、图片、报价、UP多规格和官方API发布工作台。
 
-> Current stage: `v0.5.0 visual console`. A secure, server-hosted visual workbench is available at `/console` for product import, six-variant review, media association, transparent three-site pricing and read-only publish preflight. Live publishing remains disabled.
+> Current stage: `v0.6.0 AI content studio`. The secure `/console` supports optional multimodal fact extraction, human-confirmed fact sheets, independent MLM/MCO/MLC copy drafts, 7–10 image plans and reference-image generation. Manual-only operation remains fully supported. Live publishing remains disabled.
 
-## Included in v0.5.0
+## Included in v0.6.0
+
+- Optional AI workflow: products can remain fully manual, use text only, or analyze a user-selected image subset.
+- Three-layer fact control: AI suggestions can never overwrite manual or human-confirmed facts.
+- Multimodal OpenAI-compatible provider boundary with separate text, vision and image models.
+- Independent Spanish titles for Mexico, Colombia and Chile, with English descriptions/specifications.
+- Official Mercado Libre category requirements included in copy generation when categories and an account are available.
+- Seven-to-ten-image gallery planning with editable prompts and strict product-fidelity instructions.
+- Reference-image white-background and marketing-image drafts stored as pending review, never auto-published or auto-associated.
+- Multi-image upload from both the AI studio and review page.
+- Idempotency keys, generation audit records and safe error summaries for chargeable AI operations.
 
 - PostgreSQL schema for products, variants, media, listings, listing variants and idempotent publish jobs.
 - Product creation/list/detail/status APIs.
@@ -31,7 +41,7 @@
 - Three-site category prediction through authenticated domain discovery without auto-selecting a category.
 - One explicit primary image per variant; reused color-primary images are rejected by preflight.
 - Mercado Libre picture IDs and image validation state can be recorded after a separate approved upload step.
-- Responsive four-page visual console: products, import, review/pricing, and publish preflight/logs.
+- Responsive five-page visual console: products, import, AI content, review/pricing, and publish preflight/logs.
 - Password login with scrypt hash, signed HttpOnly/SameSite session cookie, strict origin checks and login throttling.
 - Browser requests never receive or store `APP_API_KEY`, OAuth tokens, Client Secret or token-encryption keys.
 - Visual three-site quote calculator that exposes every input and fills normal/promotional variant prices for human approval.
@@ -75,6 +85,13 @@ When `APP_API_KEY` is configured, send it as `X-API-Key` for every `/api/*` requ
 | POST | `/api/products/:id/media` | Upload image/video/ZIP |
 | POST | `/api/products/:id/media/external` | Register an HTTPS image generated outside the console |
 | POST | `/api/products/:id/variants/:variantId/media/:mediaId` | Associate media with a variant |
+| GET | `/api/ai/products/:id/workspace` | Read fact layers and recent AI task history |
+| PUT | `/api/ai/products/:id/facts` | Save manual or human-confirmed fact objects |
+| POST | `/api/ai/products/:id/analyze` | Optionally extract fact suggestions from selected images and text |
+| POST | `/api/ai/products/:id/listing-drafts` | Generate editable three-site copy drafts |
+| POST | `/api/ai/products/:id/image-plan` | Generate an editable 7–10 image gallery plan |
+| POST | `/api/ai/products/:id/white-background` | Generate a pending-review white-background draft from a reference image |
+| POST | `/api/ai/products/:id/generate-image` | Generate a pending-review gallery draft from a reference image and prompt |
 | POST | `/api/pricing/quote` | Calculate one site quote |
 | POST | `/api/pricing/quote-all` | Calculate independent three-site quotes |
 | POST | `/api/integrations/mercadolibre/oauth/connect` | Create a short-lived Global Selling authorization URL |
@@ -90,7 +107,7 @@ When `APP_API_KEY` is configured, send it as `X-API-Key` for every `/api/*` requ
 | GET | `/api/publish/:productId/global-up-preview` | Preview the unsent Global UP Family candidate |
 | POST | `/api/publish/:productId/remote-preflight` | Read-only account/category preflight; never publishes |
 | GET | `/api/publish/jobs` | Review preflight/publish job summaries and errors |
-| POST | `/api/publish/:productId/live` | Safety-gated placeholder; no live publishing in v0.5.0 |
+| POST | `/api/publish/:productId/live` | Safety-gated placeholder; no live publishing in v0.6.0 |
 
 ## Visual console
 
@@ -133,7 +150,7 @@ docker compose run --rm api npm run db:migrate
 docker compose up -d
 ```
 
-When upgrading, pulling the new image is not enough: run `npm run db:migrate` (or the Compose migration command above) so migrations `003` and `004` are applied before restarting the API.
+When upgrading, pulling the new image is not enough: run `npm run db:migrate` (or the Compose migration command above) so migration `005` and all earlier migrations are applied before restarting the API.
 
 Nginx must forward both the Appsmith/API path and the exact registered callback path `https://mercado.cybertao.space/oauth/callback` to `127.0.0.1:3100`. Keep `MELI_PUBLISH_ENABLED=false` during OAuth and smoke testing.
 
@@ -145,11 +162,11 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 
 ## Next implementation milestone
 
-1. Wire the four Appsmith pages using [appsmith/API_QUERIES.md](appsmith/API_QUERIES.md).
-2. Upload/associate one approved image for each of the six colors.
-3. Select real categories and import their current mandatory attributes.
-4. Confirm the final Global UP payload against the connected account's returned metadata.
-5. Implement picture upload plus a still-disabled idempotent publication adapter.
-6. Add FFmpeg template video generation.
+1. Exercise the AI studio with the six-color organizer and a configured server-side provider.
+2. Approve and associate one white-background image for every color variant.
+3. Confirm real categories and their current mandatory attributes for all three sites.
+4. Validate the final Global UP payload against the connected account's returned metadata.
+5. Add the later workflow/orchestration layer without changing the human-review boundary.
+6. Implement picture upload plus a still-disabled idempotent publication adapter.
 
-See [docs/architecture.md](docs/architecture.md) for the data and safety boundaries.
+See [docs/ai-studio.md](docs/ai-studio.md) for AI setup and operation, and [docs/architecture.md](docs/architecture.md) for the data and safety boundaries.
