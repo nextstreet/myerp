@@ -5,15 +5,18 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '../console');
 const attempts = new Map();
 
+// Relaxed for testing: allow many attempts in a short window, then a brief cooldown.
+// Not a production-grade throttle; tune before putting this behind a public login.
 function rateLimited(ip, now = Date.now()) {
-  const windowMs = 15 * 60 * 1000;
+  const windowMs = 60 * 1000;   // 1-minute window
+  const maxAttempts = 200;      // generous threshold for interactive testing
   const current = attempts.get(ip);
   if (!current || current.resetAt <= now) {
     attempts.set(ip, { count: 1, resetAt: now + windowMs });
     return false;
   }
   current.count += 1;
-  return current.count > 5;
+  return current.count > maxAttempts;
 }
 
 export async function consoleRoutes(app) {
