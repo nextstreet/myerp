@@ -65,6 +65,18 @@ export async function mercadoLibreRoutes(app) {
     return app.mercadoLibreOAuth.inspectCapabilities(request.params.accountId);
   });
 
+  app.get('/api/integrations/mercadolibre/accounts/:accountId/items/:itemId', async (request) => {
+    if (!app.mercadoLibreOAuth) throw unavailable();
+    const itemId = String(request.params.itemId ?? '').trim().toUpperCase();
+    if (!/^(MLM|MCO|MLC)\d{6,15}$/.test(itemId)) {
+      const error = new Error('itemId must be a Mexico, Colombia, or Chile Mercado Libre item ID');
+      error.statusCode = 400;
+      error.code = 'validation_error';
+      throw error;
+    }
+    return app.mercadoLibreOAuth.inspectItem(request.params.accountId, itemId);
+  });
+
   app.post('/api/integrations/mercadolibre/accounts/:accountId/category-requirements', async (request) => {
     if (!app.mercadoLibreOAuth) throw unavailable();
     const categoryIds = request.body?.categoryIds;
