@@ -8,6 +8,7 @@ import { publishRoutes } from './routes/publish.js';
 import { mediaRoutes } from './routes/media.js';
 import { mercadoLibreRoutes } from './routes/mercadolibre.js';
 import { consoleRoutes } from './routes/console.js';
+import { aiStudioRoutes } from './routes/ai-studio.js';
 
 function secureEqual(left, right) {
   const leftBuffer = Buffer.from(String(left ?? ''));
@@ -15,7 +16,7 @@ function secureEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-export async function buildApp({ config, pool, mercadoLibreOAuth = null, consoleSession = null }) {
+export async function buildApp({ config, pool, mercadoLibreOAuth = null, consoleSession = null, aiProvider = null }) {
   const app = Fastify({
     // Default request logs include the full callback URL and could expose the
     // short-lived OAuth code/state. Application logs below use explicit,
@@ -50,15 +51,18 @@ export async function buildApp({ config, pool, mercadoLibreOAuth = null, console
   app.decorate('db', pool);
   app.decorate('mercadoLibreOAuth', mercadoLibreOAuth);
   app.decorate('consoleSession', consoleSession);
+  app.decorate('aiProvider', aiProvider);
 
   app.get('/health', async () => {
     await pool.query('SELECT 1');
     return {
       ok: true,
       service: 'mercado-libre-ai-listing-console',
-      version: '0.5.0',
+      version: '0.6.0',
       mercadoLibreOAuthConfigured: config.mercadoLibre.configured,
-      consoleConfigured: config.console.configured
+      consoleConfigured: config.console.configured,
+      aiProviderConfigured: config.ai.configured,
+      aiImageGenerationConfigured: Boolean(aiProvider?.supportsImages)
     };
   });
 
@@ -83,6 +87,7 @@ export async function buildApp({ config, pool, mercadoLibreOAuth = null, console
   await app.register(pricingRoutes, { prefix: '/api/pricing' });
   await app.register(publishRoutes, { prefix: '/api/publish' });
   await app.register(mercadoLibreRoutes);
+  await app.register(aiStudioRoutes, { prefix: '/api/ai' });
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error, code: error.code }, 'request failed');

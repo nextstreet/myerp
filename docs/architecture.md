@@ -6,7 +6,7 @@ This repository is only for the Mercado Libre AI Listing Console. It does not co
 
 ## Components
 
-- Appsmith Community Edition: visual operations console.
+- Built-in server-hosted console: current visual operations UI. Appsmith remains an optional later integration.
 - Fastify API: validation, pricing, AI provider boundary, UP mapping, preflight and publishing orchestration.
 - PostgreSQL: products, variants, listings, listing variants, media metadata and publish jobs.
 - Local/S3-compatible storage adapter: original and generated media.
@@ -36,6 +36,17 @@ The internal UP draft intentionally does not pretend to be the final Mercado Lib
 7. no permanent-delete endpoint.
 8. AI-source review updates skip every field marked confirmed; human edits remain possible.
 9. v0.3 remote preflight performs authenticated GET requests only and records summaries, never tokens or full credentials.
+10. AI suggestions remain isolated until explicitly copied and saved by a human.
+11. Generated images remain `pending` and are never auto-associated or published.
+
+## v0.6 AI content boundary
+
+- `product_fact_sheets` separates manual facts, replaceable AI suggestions and human-confirmed facts.
+- Copy and image prompts use confirmed facts, manual facts and the original product record; unconfirmed AI suggestions are excluded.
+- Operators choose which local images leave the server for the configured AI provider. External image URLs are rejected for analysis until uploaded locally.
+- Text, vision and image models are independently configurable through server environment variables.
+- Chargeable calls use idempotency keys and create `ai_generations` audit records without raw image bytes or credentials.
+- Generated image records retain source-media IDs and generation IDs for provenance.
 
 ## v0.3 review and preflight boundary
 

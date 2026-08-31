@@ -1,4 +1,7 @@
-const state = { products: [], review: null, accounts: [], preview: {}, quotes: {} };
+const state = {
+  products: [], review: null, accounts: [], preview: {}, quotes: {},
+  aiProduct: null, aiWorkspace: null, aiDrafts: null, aiImagePlan: null
+};
 const sites = [
   { id: 'MLM', name: 'Mexico', currency: 'MXN' },
   { id: 'MCO', name: 'Colombia', currency: 'COP' },
@@ -85,9 +88,10 @@ function statusPill(status) {
 function navigate(page) {
   document.querySelectorAll('.page').forEach((node) => node.classList.toggle('active', node.id === `page-${page}`));
   document.querySelectorAll('.nav-item').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
-  const titles = { products: '产品列表', import: '导入产品', review: 'AI处理与人工审核', publish: '发布预检' };
+  const titles = { products: '产品列表', import: '导入产品', ai: 'AI 内容工作台', review: '人工审核与报价', publish: '发布预检' };
   $('pageTitle').textContent = titles[page];
   if (page === 'products') loadProducts();
+  if (page === 'ai') prepareAiWorkspace();
   if (page === 'review') prepareReview();
   if (page === 'publish') preparePublish();
 }
@@ -130,13 +134,19 @@ function renderProducts() {
     }
     const statusCell = document.createElement('td'); statusCell.append(statusPill(product.status)); row.append(statusCell);
     const updated = document.createElement('td'); updated.textContent = new Date(product.updatedAt).toLocaleString('zh-CN'); row.append(updated);
-    const action = document.createElement('td'); action.append(button('审核', 'button ghost small', () => openReview(product.id))); row.append(action);
+    const action = document.createElement('td');
+    const actionWrap = document.createElement('div'); actionWrap.className = 'table-actions';
+    actionWrap.append(
+      button('AI处理', 'button accent small', () => openAi(product.id)),
+      button('审核', 'button ghost small', () => openReview(product.id))
+    );
+    action.append(actionWrap); row.append(action);
     body.append(row);
   }
 }
 
 function populateProductSelects() {
-  for (const id of ['reviewProductSelect', 'publishProductSelect']) {
+  for (const id of ['aiProductSelect', 'reviewProductSelect', 'publishProductSelect']) {
     const select = $(id); const selected = select.value;
     select.replaceChildren(option('', '选择产品'));
     state.products.forEach((product) => select.append(option(product.id, `${product.internalCode} · ${product.originalTitle}`)));
@@ -191,6 +201,268 @@ async function createProduct(event) {
     event.currentTarget.reset(); $('importVariantsBody').replaceChildren(); addImportVariant();
     await loadProducts(); openReview(result.id);
   } catch (error) { toast(error.message, true); }
+}
+
+function parseObject(id, label) {
+  const value = $(id).value.trim();
+  if (!value) return {};
+  const parsed = JSON.parse(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label}必须是JSON对象`);
+  return parsed;
+}
+
+function pretty(value) { return JSON.stringify(value ?? {}, null, 2); }
+
+function mergeObjects(...values) {
+  const result = {};
+  for (const value of values) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    for (const [key, next] of Object.entries(value)) {
+      if (next && typeof next === 'object' && !Array.isArray(next)
+          && result[key] && typeof result[key] === 'object' && !Array.isArray(result[key])) {
+        result[key] = mergeObjects(result[key], next);
+      } else result[key] = structuredClone(next);
+    }
+  }
+  return result;
+}
+
+async function withBusy(control, workingLabel, task) {
+  const original = control.textContent;
+  control.disabled = true; control.textContent = workingLabel;
+  try { return await task(); } finally { control.disabled = false; control.textContent = original; }
+}
+
+async function prepareAiWorkspace() {
+  if (!state.products.length) await loadProducts();
+  if ($('aiProductSelect').value) await loadAiWorkspace($('aiProductSelect').value);
+}
+
+function openAi(productId) {
+  navigate('ai'); $('aiProductSelect').value = productId; loadAiWorkspace(productId);
+}
+
+async function loadAiWorkspace(productId) {
+  if (!productId) return;
+  try {
+    const [product, workspace] = await Promise.all([
+      api(`/api/products/${productId}`),
+      api(`/api/ai/products/${productId}/workspace`)
+    ]);
+    state.aiProduct = product; state.aiWorkspace = workspace;
+    $('aiEmpty').classList.add('hidden'); $('aiContent').classList.remove('hidden');
+    $('aiProductName').textContent = product.originalTitle;
+    $('aiProductMeta').textContent = `${product.internalCode} · ${product.variants.length} 个规格 · ${product.targetSites.join(' / ')}`;
+    $('aiFactRevision').textContent = `版本 ${workspace.factSheet.revision}`;
+    $('manualFacts').value = pretty(workspace.factSheet.manualFacts);
+    $('aiSuggestions').value = pretty(workspace.factSheet.aiSuggestions);
+    $('confirmedFacts').value = pretty(workspace.factSheet.confirmedFacts);
+    $('aiEvidence').textContent = pretty({ confidence: workspace.factSheet.confidence, evidence: workspace.factSheet.evidence });
+    const provider = workspace.provider;
+    $('aiProviderBadge').textContent = provider.configured
+      ? `${provider.name}${provider.imageGenerationConfigured ? ' · 文案+图片' : ' · 仅文案'}` : 'AI未配置 · 可手工使用';
+    $('aiProviderBadge').className = `status-pill ${provider.configured ? 'good' : 'warn'}`;
+    $('runAiAnalysis').disabled = !provider.configured;
+    $('generateAiCopy').disabled = !provider.configured;
+    $('generateImagePlan').disabled = !provider.configured;
+    $('generateWhiteBackground').disabled = !provider.imageGenerationConfigured;
+    renderAiMedia(); renderAiJobs();
+    const copy = workspace.generations.find((item) => item.generation_type === 'listing_copy' && item.status === 'completed');
+    const plan = workspace.generations.find((item) => item.generation_type === 'image_plan' && item.status === 'completed');
+    state.aiDrafts = copy?.output ?? null; state.aiImagePlan = plan?.output ?? null;
+    renderAiListingDrafts(state.aiDrafts); renderAiImagePlan(state.aiImagePlan);
+  } catch (error) { toast(error.message, true); }
+}
+
+function renderAiMedia() {
+  const grid = $('aiMediaGrid'); grid.replaceChildren();
+  const reference = $('aiReferenceMedia'); const previous = reference.value;
+  reference.replaceChildren(option('', '选择真实产品参考图'));
+  const images = state.aiProduct.media.filter((item) => item.media_type === 'image');
+  if (!images.length) {
+    const empty = document.createElement('div'); empty.className = 'panel empty'; empty.textContent = '请先批量上传产品图片。'; grid.append(empty); return;
+  }
+  images.forEach((media) => {
+    const card = document.createElement('article'); card.className = 'media-card';
+    const check = input('checkbox'); check.className = 'media-check'; check.dataset.mediaId = media.id;
+    check.checked = media.role === 'original' || media.role === 'detail' || media.role === 'dimension';
+    const image = document.createElement('img'); image.src = `/api/products/${state.aiProduct.id}/media/${media.id}/content`; image.alt = media.alt_text || ''; image.loading = 'lazy';
+    const label = document.createElement('small'); label.textContent = `${media.role} · ${media.original_filename}`;
+    card.append(check, image, label);
+    const sync = () => card.classList.toggle('selected', check.checked); sync();
+    check.addEventListener('change', sync);
+    card.addEventListener('click', (event) => { if (event.target !== check) { check.checked = !check.checked; sync(); } });
+    grid.append(card);
+    reference.append(option(media.id, `${media.role} · ${media.original_filename}`));
+  });
+  if (images.some((item) => item.id === previous)) reference.value = previous;
+  else reference.value = images.find((item) => item.role === 'original')?.id ?? images[0].id;
+}
+
+function selectedAiMediaIds() {
+  return [...$('aiMediaGrid').querySelectorAll('[data-media-id]:checked')].map((node) => node.dataset.mediaId);
+}
+
+async function uploadProductFiles(productId, files, role) {
+  if (!files.length) throw new Error('请先选择图片');
+  for (const file of files) {
+    const data = new FormData(); data.append('role', role); data.append('file', file);
+    await api(`/api/products/${productId}/media`, { method: 'POST', body: data });
+  }
+}
+
+async function uploadAiMedia() {
+  if (!state.aiProduct) return toast('请先选择产品', true);
+  const files = [...$('aiUploadFiles').files];
+  try {
+    await withBusy($('uploadAiMedia'), `上传中 0/${files.length}`, async () => {
+      await uploadProductFiles(state.aiProduct.id, files, $('aiUploadRole').value);
+    });
+    $('aiUploadFiles').value = ''; toast(`已上传 ${files.length} 张图片`); await loadAiWorkspace(state.aiProduct.id);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function saveAiFacts(kind) {
+  if (!state.aiProduct) return;
+  try {
+    const isManual = kind === 'manual';
+    const payload = isManual
+      ? { manualFacts: parseObject('manualFacts', '手工事实') }
+      : { confirmedFacts: parseObject('confirmedFacts', '确认事实') };
+    await api(`/api/ai/products/${state.aiProduct.id}/facts`, { method: 'PUT', body: JSON.stringify(payload) });
+    toast(isManual ? '手工事实已保存' : '人工确认事实已保存'); await loadAiWorkspace(state.aiProduct.id);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function runAiAnalysis() {
+  if (!state.aiProduct) return;
+  try {
+    await withBusy($('runAiAnalysis'), 'AI分析中…', async () => {
+      await api(`/api/ai/products/${state.aiProduct.id}/analyze`, {
+        method: 'POST', body: JSON.stringify({ requestKey: crypto.randomUUID(), selectedMediaIds: selectedAiMediaIds() })
+      });
+    });
+    toast('AI事实建议已生成，请人工确认'); await loadAiWorkspace(state.aiProduct.id); await loadProducts();
+  } catch (error) { toast(error.message, true); }
+}
+
+function renderAiListingDrafts(drafts) {
+  const container = $('aiListingDrafts'); container.replaceChildren();
+  if (!drafts?.listings) {
+    const empty = document.createElement('div'); empty.className = 'panel empty span-all'; empty.textContent = '尚未生成文案。您也可以直接在“审核与报价”页面手工填写。'; container.append(empty); return;
+  }
+  for (const site of sites) {
+    const draft = drafts.listings[site.id]; if (!draft) continue;
+    const card = document.createElement('article'); card.className = 'panel country-card ai-copy-card'; card.dataset.site = site.id;
+    const head = document.createElement('div'); head.className = 'country-head';
+    const title = document.createElement('h4'); title.textContent = site.name;
+    const code = document.createElement('span'); code.className = 'flag-code'; code.textContent = `${site.id} · ${site.currency}`; head.append(title, code); card.append(head);
+    const stack = document.createElement('div'); stack.className = 'field-stack';
+    const controls = {};
+    for (const [name, label, value, rows] of [
+      ['title', '西班牙语标题', draft.title, 2],
+      ['description', 'English Description', draft.descriptionEnglish, 7],
+      ['specifications', 'English Specifications JSON', pretty(draft.specificationsEnglish), 7],
+      ['attributes', '类目属性建议 JSON', pretty(draft.attributeSuggestions), 7]
+    ]) {
+      const field = document.createElement('label'); field.textContent = label;
+      const control = document.createElement('textarea'); control.value = value || ''; control.rows = rows; control.dataset.aiField = name; controls[name] = control; field.append(control); stack.append(field);
+    }
+    const alternatives = document.createElement('small'); alternatives.className = 'muted'; alternatives.textContent = `备选标题：${(draft.titleAlternatives || []).join(' ｜ ') || '无'}`; stack.append(alternatives);
+    stack.append(button('人工确认并保存到刊登草稿', 'button primary wide', () => saveAiListing(site, controls, drafts.familyName)));
+    card.append(stack); container.append(card);
+  }
+}
+
+async function saveAiListing(site, controls, familyName) {
+  try {
+    const specificationsEnglish = JSON.parse(controls.specifications.value || '{}');
+    const requiredAttributes = JSON.parse(controls.attributes.value || '{}');
+    await api(`/api/products/${state.aiProduct.id}/listings/${site.id}`, {
+      method: 'PUT', body: JSON.stringify({
+        title: controls.title.value.trim(), descriptionEnglish: controls.description.value.trim(),
+        specificationsEnglish, requiredAttributes, familyName, currency: site.currency
+      })
+    });
+    toast(`${site.name} 文案已由人工确认并保存`);
+    state.aiProduct = await api(`/api/products/${state.aiProduct.id}`);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function generateAiCopy() {
+  if (!state.aiProduct) return;
+  try {
+    let connectedAccountId = null;
+    try { connectedAccountId = await accountId(); } catch { connectedAccountId = null; }
+    const result = await withBusy($('generateAiCopy'), '生成三国文案中…', () => api(`/api/ai/products/${state.aiProduct.id}/listing-drafts`, {
+      method: 'POST', body: JSON.stringify({ requestKey: crypto.randomUUID(), selectedSites: sites.map((site) => site.id), accountId: connectedAccountId })
+    }));
+    state.aiDrafts = result; renderAiListingDrafts(result); toast('三国文案草稿已生成，保存前请逐项审核'); await loadAiWorkspace(state.aiProduct.id);
+  } catch (error) { toast(error.message, true); }
+}
+
+function renderAiImagePlan(plan) {
+  const container = $('aiImagePlan'); container.replaceChildren();
+  if (!plan?.images) {
+    const empty = document.createElement('div'); empty.className = 'panel empty span-all'; empty.textContent = '尚未生成图片方案。可以先上传图片并确认产品事实。'; container.append(empty); return;
+  }
+  plan.images.forEach((item) => {
+    const card = document.createElement('article'); card.className = 'panel plan-card';
+    const heading = document.createElement('h4'); heading.textContent = `${item.order}. ${item.title}`;
+    const meta = document.createElement('div'); meta.className = 'plan-meta';
+    for (const text of [item.role, item.variantScope, item.useRealProductCutout ? '真实产品主体' : '无需主体']) {
+      const chip = document.createElement('span'); chip.className = 'step-chip'; chip.textContent = text; meta.append(chip);
+    }
+    const prompt = document.createElement('textarea'); prompt.rows = 8; prompt.value = item.prompt; prompt.dataset.planPrompt = String(item.order);
+    const policy = document.createElement('small'); policy.className = 'muted'; policy.textContent = `文字规则：${item.textPolicy}`;
+    const generate = button('用参考图生成草稿', 'button secondary wide', () => generateAiImage(item, prompt, generate));
+    if (!state.aiWorkspace.provider.imageGenerationConfigured) generate.disabled = true;
+    card.append(heading, meta, prompt, policy, generate); container.append(card);
+  });
+}
+
+async function generateImagePlan() {
+  if (!state.aiProduct) return;
+  try {
+    const result = await withBusy($('generateImagePlan'), '规划7–10张图片中…', () => api(`/api/ai/products/${state.aiProduct.id}/image-plan`, {
+      method: 'POST', body: JSON.stringify({ requestKey: crypto.randomUUID() })
+    }));
+    state.aiImagePlan = result; renderAiImagePlan(result); toast('图片方案已生成，可逐张修改提示词'); await loadAiWorkspace(state.aiProduct.id);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function generateAiImage(item, promptControl, control) {
+  const referenceMediaId = $('aiReferenceMedia').value;
+  if (!referenceMediaId) return toast('请先选择真实产品参考图', true);
+  try {
+    await withBusy(control, '图片生成中…', () => api(`/api/ai/products/${state.aiProduct.id}/generate-image`, {
+      method: 'POST', body: JSON.stringify({
+        requestKey: crypto.randomUUID(), referenceMediaId, role: item.role, prompt: promptControl.value.trim()
+      })
+    }));
+    toast('图片草稿已生成并标记为待审核'); await loadAiWorkspace(state.aiProduct.id);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function generateWhiteBackground() {
+  const referenceMediaId = $('aiReferenceMedia').value;
+  if (!state.aiProduct || !referenceMediaId) return toast('请先选择真实产品参考图', true);
+  try {
+    await withBusy($('generateWhiteBackground'), '白底图生成中…', () => api(`/api/ai/products/${state.aiProduct.id}/white-background`, {
+      method: 'POST', body: JSON.stringify({ requestKey: crypto.randomUUID(), referenceMediaId })
+    }));
+    toast('白底图草稿已生成，请检查结构和颜色'); await loadAiWorkspace(state.aiProduct.id);
+  } catch (error) { toast(error.message, true); }
+}
+
+function renderAiJobs() {
+  const body = $('aiJobsBody'); body.replaceChildren();
+  state.aiWorkspace.generations.forEach((job) => {
+    const row = document.createElement('tr');
+    [new Date(job.created_at).toLocaleString('zh-CN'), job.generation_type, `${job.provider}${job.model ? ` · ${job.model}` : ''}`, job.status, job.error_message || '—']
+      .forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); });
+    body.append(row);
+  });
 }
 
 async function prepareReview() {
@@ -262,12 +534,11 @@ function renderMedia() {
 }
 
 async function uploadMedia() {
-  const file = $('mediaFile').files[0];
-  if (!file || !state.review) return toast('请先选择图片', true);
-  const data = new FormData(); data.append('role', $('mediaRole').value); data.append('file', file);
+  const files = [...$('mediaFile').files];
+  if (!files.length || !state.review) return toast('请先选择图片', true);
   try {
-    await api(`/api/products/${state.review.id}/media`, { method: 'POST', body: data });
-    $('mediaFile').value = ''; toast('图片上传成功'); await loadReview(state.review.id);
+    await withBusy($('uploadMedia'), `上传 ${files.length} 张图片中…`, () => uploadProductFiles(state.review.id, files, $('mediaRole').value));
+    $('mediaFile').value = ''; toast(`已上传 ${files.length} 张图片`); await loadReview(state.review.id);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -431,6 +702,21 @@ $('refreshProducts').addEventListener('click', loadProducts); $('productStatusFi
 $('addVariant').addEventListener('click', () => addImportVariant());
 $('fillSixColors').addEventListener('click', () => { $('importVariantsBody').replaceChildren(); [['BLK','Black'],['WHT','White'],['GRY','Gray'],['GRN','Green'],['PNK','Pink'],['CRM','Cream']].forEach(([code,color]) => addImportVariant({ sellerSku:`MESH-4C-${code}`, color, stock:10, purchasePriceCny:12.13, packedWeightG:650 })); });
 $('importForm').addEventListener('submit', createProduct); addImportVariant();
+$('aiProductSelect').addEventListener('change', (event) => loadAiWorkspace(event.target.value));
+$('reloadAiWorkspace').addEventListener('click', () => loadAiWorkspace($('aiProductSelect').value));
+$('uploadAiMedia').addEventListener('click', uploadAiMedia);
+$('saveManualFacts').addEventListener('click', () => saveAiFacts('manual'));
+$('saveConfirmedFacts').addEventListener('click', () => saveAiFacts('confirmed'));
+$('copyAiToConfirmed').addEventListener('click', () => {
+  try {
+    const merged = mergeObjects(parseObject('confirmedFacts', '确认事实'), parseObject('aiSuggestions', 'AI建议'));
+    $('confirmedFacts').value = pretty(merged); toast('已复制到确认区，检查后点击“确认保存”');
+  } catch (error) { toast(error.message, true); }
+});
+$('runAiAnalysis').addEventListener('click', runAiAnalysis);
+$('generateAiCopy').addEventListener('click', generateAiCopy);
+$('generateImagePlan').addEventListener('click', generateImagePlan);
+$('generateWhiteBackground').addEventListener('click', generateWhiteBackground);
 $('reviewProductSelect').addEventListener('change', (event) => loadReview(event.target.value)); $('reloadReview').addEventListener('click', () => loadReview($('reviewProductSelect').value));
 $('uploadMedia').addEventListener('click', uploadMedia); $('discoverCategories').addEventListener('click', discoverCategories); $('markPendingPublish').addEventListener('click', markPendingPublish);
 $('calculateQuotes').addEventListener('click', calculateQuotes);

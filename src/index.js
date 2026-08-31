@@ -6,6 +6,7 @@ import { TokenCipher } from './integrations/mercadolibre/token-cipher.js';
 import { startTokenRefreshScheduler } from './integrations/mercadolibre/token-refresher.js';
 import { buildApp } from './app.js';
 import { ConsoleSessionService } from './auth/console-session.js';
+import { createAiProvider } from './integrations/ai/provider.js';
 
 const config = loadConfig();
 const pool = createPool(config);
@@ -29,7 +30,8 @@ const consoleSession = config.console.configured
       secure: config.console.publicUrl.startsWith('https://')
     })
   : null;
-const app = await buildApp({ config, pool, mercadoLibreOAuth, consoleSession });
+const aiProvider = createAiProvider(config.ai);
+const app = await buildApp({ config, pool, mercadoLibreOAuth, consoleSession, aiProvider });
 const tokenScheduler = mercadoLibreOAuth
   ? startTokenRefreshScheduler({
       service: mercadoLibreOAuth,

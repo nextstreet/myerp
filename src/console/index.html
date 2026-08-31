@@ -27,8 +27,9 @@
       <nav id="navigation">
         <button data-page="products" class="nav-item active"><span>01</span>产品列表</button>
         <button data-page="import" class="nav-item"><span>02</span>导入产品</button>
-        <button data-page="review" class="nav-item"><span>03</span>审核与报价</button>
-        <button data-page="publish" class="nav-item"><span>04</span>发布预检</button>
+        <button data-page="ai" class="nav-item"><span>03</span>AI 内容工作台</button>
+        <button data-page="review" class="nav-item"><span>04</span>审核与报价</button>
+        <button data-page="publish" class="nav-item"><span>05</span>发布预检</button>
       </nav>
       <div class="sidebar-foot"><span id="apiStatus" class="status-dot"></span><span>API 已连接</span></div>
     </aside>
@@ -76,6 +77,61 @@
         </form>
       </section>
 
+      <section id="page-ai" class="page">
+        <div class="toolbar">
+          <select id="aiProductSelect" class="grow"><option value="">选择需要处理的产品</option></select>
+          <button id="reloadAiWorkspace" class="button secondary">刷新工作区</button>
+        </div>
+        <div class="safety-callout"><strong>可选AI</strong><span>您可以只保存手工事实、只上传图片，或选择部分图片交给AI分析。AI建议不会自动覆盖人工确认内容。</span></div>
+        <div id="aiEmpty" class="panel empty">请选择一个产品。</div>
+        <div id="aiContent" class="hidden">
+          <div class="review-hero panel">
+            <div><p class="eyebrow">AI PRODUCT STUDIO</p><h3 id="aiProductName"></h3><p id="aiProductMeta" class="muted"></p></div>
+            <span id="aiProviderBadge" class="status-pill">检查中</span>
+          </div>
+
+          <div class="section-heading"><div><p class="eyebrow">FACT CONTROL</p><h3>产品事实与AI建议</h3></div><span id="aiFactRevision" class="step-chip">版本 0</span></div>
+          <div class="fact-grid">
+            <article class="panel fact-card">
+              <div class="panel-title"><div><h3>手工补充事实</h3><small class="muted">始终优先于AI建议</small></div><button id="saveManualFacts" class="button secondary small">保存</button></div>
+              <textarea id="manualFacts" rows="18" spellcheck="false" placeholder='{"material":"Iron / Metal Mesh","compartments":4}'></textarea>
+            </article>
+            <article class="panel fact-card">
+              <div class="panel-title"><div><h3>AI提取建议</h3><small class="muted">仅供审核，不自动应用</small></div><button id="copyAiToConfirmed" class="button accent small">复制到确认区</button></div>
+              <textarea id="aiSuggestions" rows="18" spellcheck="false" readonly></textarea>
+              <details><summary>置信度与证据</summary><pre id="aiEvidence">{}</pre></details>
+            </article>
+            <article class="panel fact-card">
+              <div class="panel-title"><div><h3>人工确认事实</h3><small class="muted">后续文案和图片的最高优先级</small></div><button id="saveConfirmedFacts" class="button primary small">确认保存</button></div>
+              <textarea id="confirmedFacts" rows="18" spellcheck="false"></textarea>
+            </article>
+          </div>
+
+          <div class="section-heading"><div><p class="eyebrow">VISION INPUT</p><h3>选择AI需要分析的图片</h3></div><button id="runAiAnalysis" class="button accent">分析已选图片与资料</button></div>
+          <div class="panel media-toolbar ai-upload-toolbar">
+            <input id="aiUploadFiles" type="file" accept="image/*" multiple>
+            <select id="aiUploadRole"><option value="original">原图</option><option value="detail">详情图</option><option value="dimension">尺寸图</option><option value="color_reference">颜色参考</option></select>
+            <button id="uploadAiMedia" class="button secondary">批量上传</button>
+          </div>
+          <div id="aiMediaGrid" class="media-grid selectable-media"></div>
+
+          <div class="section-heading"><div><p class="eyebrow">COPY GENERATION</p><h3>三国标题、英文描述与参数</h3></div><button id="generateAiCopy" class="button accent">生成三国文案草稿</button></div>
+          <div class="safety-callout compact"><strong>生成依据</strong><span>人工确认事实 ＞ 手工补充事实 ＞ 产品原始资料。未确认的AI建议不会进入文案或图片生成，也不会覆盖已保存刊登。</span></div>
+          <div id="aiListingDrafts" class="country-grid"></div>
+
+          <div class="section-heading"><div><p class="eyebrow">IMAGE STUDIO</p><h3>白底图与7–10张图片方案</h3></div><button id="generateImagePlan" class="button accent">生成图片方案</button></div>
+          <div class="panel image-action-bar">
+            <label>真实产品参考图<select id="aiReferenceMedia"><option value="">选择参考图</option></select></label>
+            <button id="generateWhiteBackground" class="button secondary">生成白底图草稿</button>
+            <span class="muted">生成结果默认“待审核”，不会自动设为规格主图。</span>
+          </div>
+          <div id="aiImagePlan" class="image-plan-grid"></div>
+
+          <div class="section-heading"><div><p class="eyebrow">AI AUDIT</p><h3>最近AI任务</h3></div></div>
+          <div class="panel table-panel"><table><thead><tr><th>时间</th><th>任务</th><th>Provider</th><th>状态</th><th>错误</th></tr></thead><tbody id="aiJobsBody"></tbody></table></div>
+        </div>
+      </section>
+
       <section id="page-review" class="page">
         <div class="toolbar"><select id="reviewProductSelect" class="grow"><option value="">选择需要审核的产品</option></select><button id="reloadReview" class="button secondary">刷新详情</button></div>
         <div id="reviewEmpty" class="panel empty">请选择一个产品。</div>
@@ -85,7 +141,7 @@
           <div class="panel table-panel"><table><thead><tr><th>Seller SKU</th><th>颜色</th><th>尺寸</th><th>库存</th><th>参与发布</th><th>主图</th><th></th></tr></thead><tbody id="reviewVariantsBody"></tbody></table></div>
 
           <div class="section-heading"><div><p class="eyebrow">MEDIA</p><h3>图片上传与颜色关联</h3></div></div>
-          <div class="panel media-toolbar"><input id="mediaFile" type="file" accept="image/*"><select id="mediaRole"><option value="original">原图</option><option value="white_background">白底图</option><option value="dimension">尺寸图</option><option value="feature">功能图</option><option value="scene">场景图</option></select><button id="uploadMedia" class="button secondary">上传图片</button></div>
+          <div class="panel media-toolbar"><input id="mediaFile" type="file" accept="image/*" multiple><select id="mediaRole"><option value="original">原图</option><option value="white_background">白底图</option><option value="dimension">尺寸图</option><option value="feature">功能图</option><option value="scene">场景图</option></select><button id="uploadMedia" class="button secondary">批量上传图片</button></div>
           <div id="mediaGrid" class="media-grid"></div>
 
           <div class="section-heading"><div><p class="eyebrow">COUNTRY LISTINGS</p><h3>三国刊登资料与报价</h3></div><button id="discoverCategories" class="button accent">查询三国类目建议</button></div>
