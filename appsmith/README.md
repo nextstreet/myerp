@@ -1,6 +1,6 @@
 # Appsmith UI
 
-The API contract for the first four pages is stable in v0.4.0. Configure the queries in [API_QUERIES.md](API_QUERIES.md); an Appsmith export is produced after the datasource base URL and Appsmith version on the deployment server are known.
+The v0.5 repository now includes a built-in visual console because official Appsmith JSON exports must originate from a live Appsmith instance and do not carry datasource credentials. Appsmith remains optional: configure the queries in [API_QUERIES.md](API_QUERIES.md) when an instance/version is available, or embed the secure `/console` application.
 
 Planned pages:
 

@@ -202,7 +202,7 @@ export async function publishRoutes(app) {
       error.statusCode = 403;
       throw error;
     }
-    const error = new Error('Official site-specific UP publishing adapter is not enabled in v0.4.0');
+    const error = new Error('Official site-specific UP publishing adapter is not enabled in v0.5.0');
     error.statusCode = 501;
     error.code = 'publishing_adapter_pending';
     throw error;
