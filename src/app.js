@@ -9,6 +9,7 @@ import { mediaRoutes } from './routes/media.js';
 import { mercadoLibreRoutes } from './routes/mercadolibre.js';
 import { consoleRoutes } from './routes/console.js';
 import { aiStudioRoutes } from './routes/ai-studio.js';
+import packageJson from '../package.json' with { type: 'json' };
 
 function secureEqual(left, right) {
   const leftBuffer = Buffer.from(String(left ?? ''));
@@ -58,7 +59,7 @@ export async function buildApp({ config, pool, mercadoLibreOAuth = null, console
     return {
       ok: true,
       service: 'mercado-libre-ai-listing-console',
-      version: '0.6.2',
+      version: packageJson.version,
       mercadoLibreOAuthConfigured: config.mercadoLibre.configured,
       consoleConfigured: config.console.configured,
       aiProviderConfigured: config.ai.configured,
