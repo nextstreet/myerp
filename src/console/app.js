@@ -633,8 +633,10 @@ async function accountId() {
 function itemInspectionSummary(data) {
   const item = data.item || {};
   const userProduct = data.userProduct || {};
+  const sellerSkuAttribute = (item.attributes || []).find((attribute) => attribute.id === 'SELLER_SKU');
   return {
     itemId: item.id || null,
+    cbtItemId: item.cbtItemId || null,
     siteId: item.siteId || null,
     status: item.status || null,
     title: item.title || null,
@@ -642,7 +644,8 @@ function itemInspectionSummary(data) {
     price: item.price || null,
     currencyId: item.currencyId || null,
     availableQuantity: item.availableQuantity ?? null,
-    sellerSku: item.sellerCustomField || null,
+    sellerSku: item.sellerCustomField || sellerSkuAttribute?.valueName || null,
+    netProceeds: item.netProceeds || null,
     userProductId: item.userProductId || null,
     familyId: userProduct.familyId || null,
     familyName: userProduct.familyName || item.familyName || null,
