@@ -30,6 +30,89 @@ function oauthError(message, code, statusCode = 502) {
   return error;
 }
 
+function compactAttributes(attributes) {
+  if (!Array.isArray(attributes)) return [];
+  return attributes.map((attribute) => ({
+    id: attribute.id ?? null,
+    name: attribute.name ?? null,
+    valueId: attribute.value_id ?? null,
+    valueName: attribute.value_name ?? null,
+    values: Array.isArray(attribute.values) ? attribute.values.map((value) => ({
+      id: value.id ?? null,
+      name: value.name ?? null,
+      struct: value.struct ?? null
+    })) : [],
+    valueStruct: attribute.value_struct ?? null
+  }));
+}
+
+function compactPictures(pictures) {
+  if (!Array.isArray(pictures)) return [];
+  return pictures.map((picture) => ({
+    id: picture.id ?? null,
+    url: picture.secure_url ?? picture.url ?? null,
+    size: picture.size ?? null,
+    maxSize: picture.max_size ?? null,
+    quality: picture.quality ?? null
+  }));
+}
+
+export function normalizeItemInspection({ item, description, userProduct, userProductStatus }) {
+  return {
+    item: {
+      id: item.id,
+      siteId: item.site_id ?? null,
+      title: item.title ?? null,
+      subtitle: item.subtitle ?? null,
+      status: item.status ?? null,
+      subStatus: item.sub_status ?? [],
+      categoryId: item.category_id ?? null,
+      sellerId: item.seller_id === undefined ? null : String(item.seller_id),
+      listingTypeId: item.listing_type_id ?? null,
+      currencyId: item.currency_id ?? null,
+      price: item.price ?? null,
+      basePrice: item.base_price ?? null,
+      availableQuantity: item.available_quantity ?? null,
+      soldQuantity: item.sold_quantity ?? null,
+      permalink: item.permalink ?? null,
+      userProductId: item.user_product_id ?? null,
+      familyName: item.family_name ?? null,
+      sellerCustomField: item.seller_custom_field ?? null,
+      attributes: compactAttributes(item.attributes),
+      variations: Array.isArray(item.variations) ? item.variations.map((variation) => ({
+        id: variation.id ?? null,
+        price: variation.price ?? null,
+        availableQuantity: variation.available_quantity ?? null,
+        soldQuantity: variation.sold_quantity ?? null,
+        sellerCustomField: variation.seller_custom_field ?? null,
+        attributes: compactAttributes(variation.attribute_combinations),
+        pictureIds: Array.isArray(variation.picture_ids) ? variation.picture_ids : []
+      })) : [],
+      pictures: compactPictures(item.pictures),
+      saleTerms: compactAttributes(item.sale_terms),
+      dateCreated: item.date_created ?? null,
+      lastUpdated: item.last_updated ?? null
+    },
+    description: description ? {
+      plainText: description.plain_text ?? null,
+      lastUpdated: description.last_updated ?? null
+    } : null,
+    userProduct: userProduct ? {
+      id: userProduct.id ?? null,
+      status: userProduct.status ?? null,
+      familyId: userProduct.family_id ?? null,
+      familyName: userProduct.family_name ?? null,
+      attributes: compactAttributes(userProduct.attributes),
+      pictures: compactPictures(userProduct.pictures),
+      sitesToSell: userProduct.sites_to_sell ?? []
+    } : null,
+    lookups: {
+      description: description ? 'ok' : 'unavailable',
+      userProduct: userProduct ? 'ok' : userProductStatus
+    }
+  };
+}
+
 export class MercadoLibreOAuthService {
   constructor({ config, pool, cipher, apiClient }) {
     this.config = config;
@@ -283,6 +366,46 @@ export class MercadoLibreOAuthService {
       });
     }
     return { ok: categories.every((category) => category.ok), categories };
+  }
+
+  async inspectItem(accountId, itemId) {
+    const account = await this.pool.query('SELECT meli_user_id FROM seller_accounts WHERE id=$1', [accountId]);
+    if (!account.rowCount) throw oauthError('Seller account is not connected', 'seller_account_not_connected', 404);
+
+    const itemResponse = await this.authenticatedRequest(
+      accountId,
+      `/items/${encodeURIComponent(itemId)}?include_attributes=all`
+    );
+    if (!itemResponse.ok || !itemResponse.payload?.id) {
+      const status = itemResponse.status >= 400 && itemResponse.status < 500 ? itemResponse.status : 502;
+      throw oauthError(`Mercado Libre item lookup returned HTTP ${itemResponse.status}`, 'meli_item_lookup_failed', status);
+    }
+
+    const item = itemResponse.payload;
+    if (String(item.seller_id ?? '') !== String(account.rows[0].meli_user_id)) {
+      throw oauthError('The requested item does not belong to the connected seller account', 'meli_item_not_owned', 403);
+    }
+
+    const descriptionResponse = await this.authenticatedRequest(
+      accountId,
+      `/items/${encodeURIComponent(itemId)}/description`
+    );
+    let userProductResponse = null;
+    if (item.user_product_id) {
+      userProductResponse = await this.authenticatedRequest(
+        accountId,
+        `/global/user-products/${encodeURIComponent(item.user_product_id)}`
+      );
+    }
+
+    return normalizeItemInspection({
+      item,
+      description: descriptionResponse.ok ? descriptionResponse.payload : null,
+      userProduct: userProductResponse?.ok ? userProductResponse.payload : null,
+      userProductStatus: item.user_product_id
+        ? `http_${userProductResponse?.status ?? 'unknown'}`
+        : 'not_applicable'
+    });
   }
 
   async discoverCategories(accountId, { query, sites = ['MLM', 'MCO', 'MLC'], limit = 5 }) {

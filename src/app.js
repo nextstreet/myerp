@@ -58,7 +58,7 @@ export async function buildApp({ config, pool, mercadoLibreOAuth = null, console
     return {
       ok: true,
       service: 'mercado-libre-ai-listing-console',
-      version: '0.6.0',
+      version: '0.6.1',
       mercadoLibreOAuthConfigured: config.mercadoLibre.configured,
       consoleConfigured: config.console.configured,
       aiProviderConfigured: config.ai.configured,
