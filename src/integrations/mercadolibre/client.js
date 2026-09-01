@@ -39,4 +39,21 @@ export class MercadoLibreApiClient {
       payload: redactSensitive(payload)
     };
   }
+
+  async uploadPicture({ accessToken, bytes, mimeType, filename }) {
+    if (!accessToken) {
+      const error = new Error('A server-side Mercado Libre access token is required');
+      error.code = 'meli_token_required';
+      throw error;
+    }
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type: mimeType || 'image/jpeg' }), filename || 'product.jpg');
+    const response = await fetch(`${this.apiBaseUrl}/pictures/items/upload`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
+      body: form
+    });
+    const payload = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, payload: redactSensitive(payload) };
+  }
 }

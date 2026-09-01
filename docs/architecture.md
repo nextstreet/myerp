@@ -54,8 +54,16 @@ The internal UP draft intentionally does not pretend to be the final Mercado Lib
 - `confirmed_fields` is a per-entity JSON map used to prevent AI regeneration from overwriting approved content.
 - `seller_accounts.capabilities` caches the CBT site check and the official `user_product_seller` tag result.
 - Category requirements are always read from Mercado Libre at preflight time; required enumerations are not hard-coded.
-- The per-variant `/global/items` request batch is a review candidate only. It is not transmitted until picture handling, the CBT category, returned account metadata and the user's second confirmation have all passed.
+- The `/global/user-products/families` request is a review candidate only. It is not transmitted until picture handling, the CBT category, returned account metadata and the user's second confirmation have all passed.
 - Each remote preflight creates redacted `publish_jobs` summaries for MLM, MCO and MLC so failures remain auditable.
+
+## v0.7 Global UP publication boundary
+
+- `Variant` maps one-to-one to a Siteless User Product; the Family request body is an array and its order is preserved when Mercado Libre's response omits Seller SKU.
+- `global_net_proceeds` belongs to the UP root. The independent MLM/MCO/MLC price calculations remain review forecasts and are never silently substituted for this provider field.
+- Family creation sends English `family_name`, CBT category/attributes, stock, English description, uploaded picture IDs and `sites_to_sell`. It does not send a `title` or `variations` field.
+- Returned `siteless_family_id`, CBT Item, Siteless UP and site Item identifiers are persisted separately.
+- An accepted response with incomplete identifiers is saved as far as possible and moves the product into reconciliation-required failure handling. A new Family request is blocked to prevent duplicates.
 
 ## v0.4 listing-readiness boundary
 

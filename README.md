@@ -2,9 +2,18 @@
 
 美客多AI上架工作台：一个面向 Mexico、Colombia、Chile 的轻量级商品资料、AI文案、图片、报价、UP多规格和官方API发布工作台。
 
-> Current stage: `v0.6.0 AI content studio`. The secure `/console` supports optional multimodal fact extraction, human-confirmed fact sheets, independent MLM/MCO/MLC copy drafts, 7–10 image plans and reference-image generation. Manual-only operation remains fully supported. Live publishing remains disabled.
+> Current stage: `v0.7.0 Global UP publishing`. The secure `/console` supports optional AI preparation, human review, Mercado Libre picture upload, current category preflight and one explicitly confirmed six-UP Family publication. Manual-only operation remains fully supported. Live publishing is disabled by default and cannot run without both the server switch and an operator confirmation.
 
-## Included in v0.6.0
+## Included in v0.7.0
+
+- Official multi-UP Family creation through `POST /global/user-products/families`; every selected variant remains an independent Siteless User Product.
+- Reviewed local pictures are uploaded through `/pictures/items/upload` and only returned picture IDs enter the Family request.
+- Explicit `global_net_proceeds` per User Product, kept separate from the three marketplace price forecasts.
+- Current CBT and local category-attribute checks immediately before publication.
+- Server-side idempotency claim plus provider idempotency key reuse after uncertain transport failures.
+- Complete Family, CBT Item, Siteless UP and MLM/MCO/MLC Item identifier persistence.
+- Reconciliation lock after an accepted but incomplete provider response, preventing accidental duplicate publication.
+- Two-stage operator safety: separate `UPLOAD_PICTURES` and `PUBLISH` confirmations, with country, UP count, proceeds and picture count shown before publication.
 
 - Optional AI workflow: products can remain fully manual, use text only, or analyze a user-selected image subset.
 - Three-layer fact control: AI suggestions can never overwrite manual or human-confirmed facts.
@@ -35,7 +44,7 @@
 - External generated-image registration, media sorting, prompts, preview content and color association.
 - `user_product_seller` capability detection using the connected seller profile.
 - Current category-required/variation attribute lookup for up to ten category IDs.
-- Global `/global/items` request-batch preview preserving every selected User Product and independent site sales conditions.
+- Global UP Family request preview preserving every selected User Product and independent site sales conditions.
 - Read-only remote preflight with missing attributes/pictures and redacted validation job records.
 - Independent normal/promotional price persistence for every variant on MLM, MCO and MLC.
 - Three-site category prediction through authenticated domain discovery without auto-selecting a category.
@@ -106,10 +115,11 @@ When `APP_API_KEY` is configured, send it as `X-API-Key` for every `/api/*` requ
 | GET | `/api/integrations/mercadolibre/accounts/:id/items/:itemId` | Inspect one owned item plus description and Global UP/Family data |
 | GET | `/api/publish/:productId/preflight` | Validate the family before API conversion |
 | GET | `/api/publish/:productId/draft` | Preview the internal UP draft |
-| GET | `/api/publish/:productId/global-up-preview` | Preview the unsent per-variant `/global/items` request batch |
+| GET | `/api/publish/:productId/global-up-preview` | Preview the unsent `/global/user-products/families` request |
 | POST | `/api/publish/:productId/remote-preflight` | Read-only account/category preflight; never publishes |
 | GET | `/api/publish/jobs` | Review preflight/publish job summaries and errors |
-| POST | `/api/publish/:productId/live` | Safety-gated placeholder; no live publishing in v0.6.0 |
+| POST | `/api/publish/:productId/upload-pictures` | Upload reviewed local images only; never creates a listing |
+| POST | `/api/publish/:productId/live` | Create one reviewed UP Family; requires `PUBLISH` and `MELI_PUBLISH_ENABLED=true` |
 
 ## Visual console
 
@@ -152,7 +162,7 @@ docker compose run --rm api npm run db:migrate
 docker compose up -d
 ```
 
-When upgrading, pulling the new image is not enough: run `npm run db:migrate` (or the Compose migration command above) so migration `005` and all earlier migrations are applied before restarting the API.
+When upgrading, pulling the new image is not enough: run `npm run db:migrate` (or the Compose migration command above) so migration `006_global_up_publish.sql` and all earlier migrations are applied before restarting the API.
 
 Nginx must forward both the Appsmith/API path and the exact registered callback path `https://mercado.cybertao.space/oauth/callback` to `127.0.0.1:3100`. Keep `MELI_PUBLISH_ENABLED=false` during OAuth and smoke testing.
 
@@ -162,13 +172,10 @@ For local development only, expose PostgreSQL with:
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 ```
 
-## Next implementation milestone
+## Publication boundary
 
-1. Exercise the AI studio with a product stored only in the deployed ERP and a configured server-side provider.
-2. Approve and associate one white-background image for every color variant.
-3. Confirm real categories and their current mandatory attributes for all three sites.
-4. Validate the final Global UP payload against the connected account's returned metadata.
-5. Add the later workflow/orchestration layer without changing the human-review boundary.
-6. Implement picture upload plus a still-disabled idempotent publication adapter.
+The Family creation API accepts an English `family_name` and generates marketplace titles from the product attributes. The three Spanish titles remain editable review/calibration data in Tianchuan ERP; they are not inserted into the Family creation body. Marketplace-specific title or proceeds updates should be implemented as a separate, explicitly confirmed update workflow after the first live Family has been verified.
+
+Keep `MELI_PUBLISH_ENABLED=false` through deployment, migration, image review and remote preflight. Enable it only for the short, supervised publication window, then turn it off again.
 
 See [docs/ai-studio.md](docs/ai-studio.md) for AI setup and operation, and [docs/architecture.md](docs/architecture.md) for the data and safety boundaries.

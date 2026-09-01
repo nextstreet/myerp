@@ -14,8 +14,13 @@ export function preflightProductFamily({ product, variants, listings = [], media
     if (!variant.color && !variant.size && !Object.keys(variant.otherAttributes ?? {}).length) {
       errors.push({ code: 'missing_variant_attribute', variantId: variant.id, sellerSku: sku });
     }
+    if (!Number.isFinite(Number(variant.globalNetProceedsUsd)) || Number(variant.globalNetProceedsUsd) <= 0) {
+      errors.push({ code: 'missing_global_net_proceeds', variantId: variant.id, sellerSku: sku });
+    }
     const images = mediaByVariant[variant.id] ?? variant.images ?? [];
     if (!images.length) errors.push({ code: 'missing_variant_image', variantId: variant.id, sellerSku: sku });
+    else if (images.length < 7) warnings.push({ code: 'variant_gallery_below_recommended_minimum', variantId: variant.id, sellerSku: sku, count: images.length });
+    if (images.length > 10) errors.push({ code: 'variant_gallery_exceeds_maximum', variantId: variant.id, sellerSku: sku, count: images.length });
     const structuredImages = images.filter((image) => image && typeof image === 'object');
     if (structuredImages.length) {
       const primary = structuredImages.find((image) => image.isPrimary === true);
@@ -27,11 +32,14 @@ export function preflightProductFamily({ product, variants, listings = [], media
           errors.push({ code: 'shared_primary_variant_image', mediaId, variantIds: [previousOwner, variant.id] });
         } else if (mediaId) primaryMediaOwners.set(mediaId, variant.id);
       }
-      if (!structuredImages.some((image) => image.externalUrl || image.mercadoPictureId)) {
-        errors.push({ code: 'variant_image_not_publishable', variantId: variant.id, sellerSku: sku });
+      if (!structuredImages.some((image) => image.storageKey || image.externalUrl || image.mercadoPictureId)) {
+        errors.push({ code: 'variant_image_source_missing', variantId: variant.id, sellerSku: sku });
       }
       if (structuredImages.some((image) => image.validationStatus === 'rejected')) {
         errors.push({ code: 'rejected_variant_image', variantId: variant.id, sellerSku: sku });
+      }
+      if (structuredImages.some((image) => image.validationStatus && image.validationStatus !== 'ready')) {
+        errors.push({ code: 'unreviewed_variant_image', variantId: variant.id, sellerSku: sku });
       }
     }
   }
@@ -44,6 +52,7 @@ export function preflightProductFamily({ product, variants, listings = [], media
   for (const listing of listings) {
     if (!SITE_NAMES[listing.site]) errors.push({ code: 'unsupported_site', site: listing.site });
     if (!listing.title) errors.push({ code: 'missing_title', site: listing.site });
+    if (listing.currency !== 'USD') errors.push({ code: 'global_selling_currency_must_be_usd', site: listing.site, currency: listing.currency });
     if (!listing.categoryId) warnings.push({ code: 'missing_category', site: listing.site });
     const variantPrices = listing.variantPrices ?? {};
     const hasVariantPrices = Object.keys(variantPrices).length > 0;
@@ -58,6 +67,32 @@ export function preflightProductFamily({ product, variants, listings = [], media
       errors.push({ code: 'missing_price', site: listing.site });
     }
   }
+
+  const familyNames = new Set(listings.map((listing) => String(listing.familyName ?? '').trim()).filter(Boolean));
+  if (!familyNames.size) errors.push({ code: 'missing_family_name' });
+  if (familyNames.size > 1) errors.push({ code: 'conflicting_family_names', values: [...familyNames] });
+  for (const familyName of familyNames) {
+    if (familyName.length > 60) errors.push({ code: 'family_name_too_long', length: familyName.length, maximum: 60 });
+    if (/[\u3400-\u9fff]/u.test(familyName)) errors.push({ code: 'family_name_must_be_english' });
+  }
+  const globalCategoryIds = new Set(listings.map((listing) =>
+    String(listing.globalCategoryId ?? listing.familyData?.globalCategoryId ?? '').trim()
+  ).filter(Boolean));
+  if (!globalCategoryIds.size) errors.push({ code: 'missing_global_category' });
+  if (globalCategoryIds.size > 1) errors.push({ code: 'conflicting_global_categories', values: [...globalCategoryIds] });
+  const descriptions = new Set(listings.map((listing) => String(listing.descriptionEnglish ?? '').trim()).filter(Boolean));
+  if (!descriptions.size) errors.push({ code: 'missing_english_description' });
+  if (descriptions.size > 1) errors.push({ code: 'conflicting_english_descriptions' });
+  const globalAttributeSets = new Set(listings
+    .map((listing) => listing.familyData?.globalAttributes)
+    .filter((value) => value && Object.keys(value).length)
+    .map((value) => JSON.stringify(value, Object.keys(value).sort())));
+  if (globalAttributeSets.size > 1) errors.push({ code: 'conflicting_global_attributes' });
+  const globalSaleTermSets = new Set(listings
+    .map((listing) => listing.familyData?.globalSaleTerms)
+    .filter((value) => Array.isArray(value) && value.length)
+    .map((value) => JSON.stringify(value)));
+  if (globalSaleTermSets.size > 1) errors.push({ code: 'conflicting_global_sale_terms' });
 
   // Normalize targetSites: node-postgres may deliver the enum[] column as a
   // text literal like "{MLM,MCO,MLC}"; ensure we always iterate a real array.
@@ -79,6 +114,10 @@ export function preflightProductFamily({ product, variants, listings = [], media
       targetSites,
       variantCount: selected.length,
       listingCount: listings.length,
+      globalNetProceedsUsd: selected.map((variant) => ({
+        sellerSku: variant.sellerSku,
+        amount: Number(variant.globalNetProceedsUsd)
+      })),
       imageCount: new Set(selected.flatMap((variant) =>
         (mediaByVariant[variant.id] ?? variant.images ?? []).map((image) =>
           image && typeof image === 'object' ? image.id ?? image.mediaId : image
@@ -125,6 +164,7 @@ export function buildInternalUpDraft({ product, variants, listings, mediaByVaria
         purchasePriceCny: variant.purchasePriceCny ?? product.purchasePriceCny,
         packedWeightG: variant.packedWeightG ?? product.packedWeightG,
         stock: variant.stock ?? 0,
+        globalNetProceedsUsd: variant.globalNetProceedsUsd,
         imageIds: mediaByVariant[variant.id] ?? variant.images ?? [],
         siteSales: listings.map((listing) => ({
           site: listing.site,

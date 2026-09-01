@@ -4,7 +4,8 @@ import { buildGlobalUpFamilyPreview } from '../src/integrations/mercadolibre/glo
 
 test('Global UP preview keeps six variants and three independent site conditions', () => {
   const variants = ['Black', 'White', 'Gray', 'Green', 'Pink', 'Cream'].map((color, index) => ({
-    id: `v${index}`, sellerSku: `SKU-${index}`, color, stock: 10, participateInPublish: true
+    id: `v${index}`, sellerSku: `SKU-${index}`, color, stock: 10,
+    globalNetProceedsUsd: 12 + index, participateInPublish: true
   }));
   const listings = [
     { site: 'MLM', title: 'Titulo MX', categoryId: 'MLM1', globalCategoryId: 'CBT1', currency: 'USD', price: 19 },
@@ -14,15 +15,30 @@ test('Global UP preview keeps six variants and three independent site conditions
   const preview = buildGlobalUpFamilyPreview({
     product: { originalTitle: 'Demo', familyName: 'Synthetic Demo Product', rawAttributes: {} },
     variants,
-    listings,
-    mediaByVariant: Object.fromEntries(variants.map((variant) => [variant.id, [{ externalUrl: `https://img.example/${variant.id}.jpg` }]]))
+    listings: listings.map((listing) => ({
+      ...listing,
+      descriptionEnglish: 'Synthetic English description.',
+      familyData: {
+        globalAttributes: { ITEM_CONDITION: { values: [{ id: '2230284', name: 'New' }] } },
+        globalSaleTerms: [{ id: 'WARRANTY_TYPE', value_id: '6150835', value_name: 'No warranty' }]
+      }
+    })),
+    mediaByVariant: Object.fromEntries(variants.map((variant) => [variant.id, [{ mercadoPictureId: `PIC-${variant.id}` }]]))
   });
-  assert.equal(preview.requests.length, 6);
-  assert.ok(preview.requests.every((request) => request.endpoint === '/global/items'));
-  assert.ok(preview.requests.every((request) => request.body.sites_to_sell.length === 3));
-  assert.ok(preview.requests.every((request) => request.body.category_id === 'CBT1'));
-  assert.ok(preview.requests.every((request) => !Object.hasOwn(request.body, 'title')));
-  assert.ok(preview.requests.every((request) => !Object.hasOwn(request.body, 'variations')));
+  assert.equal(preview.request.endpoint, '/global/user-products/families');
+  assert.equal(preview.request.body.length, 6);
+  assert.ok(preview.request.body.every((item) => item.sites_to_sell.length === 3));
+  assert.ok(preview.request.body.every((item) => item.category_id === 'CBT1'));
+  assert.ok(preview.request.body.every((item) => !Object.hasOwn(item, 'title')));
+  assert.ok(preview.request.body.every((item) => !Object.hasOwn(item, 'variations')));
+  assert.ok(preview.request.body.every((item) => item.global_net_proceeds > 0));
+  assert.ok(preview.request.body.every((item) => item.available_quantity === 10));
+  assert.ok(preview.request.body.every((item) => item.description.plain_text === 'Synthetic English description.'));
+  assert.ok(preview.request.body.every((item) => item.sites_to_sell.every((site) => Object.keys(site).sort().join(',') === 'logistic_type,site_id')));
   assert.equal(new Set(preview.summary.sellerSkus).size, 6);
-  assert.ok(preview.requests.every((request) => request.body.pictures.length === 1));
+  assert.ok(preview.request.body.every((item) => item.pictures.length === 1));
+  assert.ok(preview.request.body.every((item) => item.pictures.every((picture) => Object.keys(picture).join(',') === 'id')));
+  assert.ok(preview.request.body.every((item) => item.attributes.find((attribute) => attribute.id === 'SELLER_SKU')));
+  assert.ok(preview.request.body.every((item) => item.attributes.find((attribute) => attribute.id === 'ITEM_CONDITION')?.values?.[0]?.id === '2230284'));
+  assert.ok(preview.request.body.every((item) => item.sale_terms[0].id === 'WARRANTY_TYPE'));
 });

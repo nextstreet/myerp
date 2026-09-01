@@ -2,7 +2,7 @@
 
 The visual console is served by the API at `/console`. It does not place `APP_API_KEY` or Mercado Libre credentials in browser code. A user logs in with a separate management password; the server verifies a scrypt hash and returns a signed HttpOnly, SameSite=Strict cookie.
 
-## 1. Build the v0.6 image
+## 1. Build the v0.7 image
 
 ```bash
 git pull origin main
@@ -44,7 +44,7 @@ CONSOLE_SESSION_TTL_SECONDS=28800
 
 ## 3. Restart safely
 
-Run the database migration command during upgrade. Version 0.6 adds migration `005_ai_studio.sql` for fact sheets, AI task idempotency and generated-image provenance.
+Run the database migration command during upgrade. Version 0.7 adds migration `006_global_up_publish.sql` for picture-upload state, `global_net_proceeds`, Family/CBT/site identifiers and publish reconciliation records.
 
 ```bash
 docker compose run --rm api npm run db:migrate
@@ -62,6 +62,17 @@ Open `https://mercado.cybertao.space/console` and enter the management password.
 2. **Import** — create the source product and all variants in one transaction; the six-color helper creates six distinct Seller SKUs.
 3. **AI content** — optionally analyze selected images, confirm product facts, create editable three-site copy and generate pending-review image drafts.
 4. **Review** — edit variants, upload images, assign one primary image per color, discover site categories, save English/Spanish content and calculate/store independent site prices.
-5. **Publish preflight** — run local or authenticated read-only preflight, inspect missing fields and the Global UP candidate, and view redacted job logs.
+5. **Publish preflight** — run local and authenticated read-only preflight, inspect the exact Global UP Family request, upload reviewed images, and view redacted job/result logs.
 
-The console contains no live-publish action. `MELI_PUBLISH_ENABLED=false` remains the server-side safety gate.
+## Supervised publication
+
+1. Leave `MELI_PUBLISH_ENABLED=false` while filling data.
+2. Give every selected variant a unique Seller SKU, a positive `global_net_proceeds` value and one exclusive primary color image.
+3. Mark every selected gallery image as `ready`, upload it to Mercado Libre, then rerun remote preflight.
+4. Verify the displayed target countries, User Product count, picture count and proceeds values.
+5. During an approved publication window only, set `MELI_PUBLISH_ENABLED=true` and restart the API.
+6. Type `PUBLISH`, accept the final browser confirmation and submit once.
+7. Verify that the result contains one Family ID, one CBT Item and one Siteless UP per selected variant, plus the expected site Item IDs.
+8. Set `MELI_PUBLISH_ENABLED=false` and restart the API after the supervised test.
+
+If the console reports `publish_reconciliation_required`, do not submit again. Mercado Libre accepted the original request but the returned mapping was incomplete; inspect the saved job and identifiers before any manual correction.

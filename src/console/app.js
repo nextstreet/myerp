@@ -1,11 +1,12 @@
 const state = {
   products: [], review: null, accounts: [], preview: {}, quotes: {},
-  aiProduct: null, aiWorkspace: null, aiDrafts: null, aiImagePlan: null
+  aiProduct: null, aiWorkspace: null, aiDrafts: null, aiImagePlan: null,
+  publishRequestKeys: {}, remotePreflightOk: {}
 };
 const sites = [
-  { id: 'MLM', name: 'Mexico', currency: 'MXN' },
-  { id: 'MCO', name: 'Colombia', currency: 'COP' },
-  { id: 'MLC', name: 'Chile', currency: 'CLP' }
+  { id: 'MLM', name: 'Mexico', currency: 'USD', localCurrency: 'MXN' },
+  { id: 'MCO', name: 'Colombia', currency: 'USD', localCurrency: 'COP' },
+  { id: 'MLC', name: 'Chile', currency: 'USD', localCurrency: 'CLP' }
 ];
 const statusLabels = {
   pending_import: '待导入', pending_ai: '待AI处理', ai_processing: 'AI处理中',
@@ -37,7 +38,9 @@ async function api(path, options = {}) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const details = Array.isArray(body.details?.errors) ? body.details.errors.map((item) => item.code).join(', ') : '';
-    throw new Error(body.message || body.error || details || `HTTP ${response.status}`);
+    const error = new Error(body.message || body.error || details || `HTTP ${response.status}`);
+    error.code = body.error || 'request_failed'; error.status = response.status; error.details = body.details;
+    throw error;
   }
   return body;
 }
@@ -502,12 +505,13 @@ function renderReviewVariants() {
   for (const variant of state.review.variants) {
     const row = document.createElement('tr');
     const sku = input('text', variant.sellerSku); const color = input('text', variant.color); const size = input('text', variant.size); const stock = input('number', variant.stock); stock.min = '0'; stock.step = '1';
-    [sku, color, size, stock].forEach((control) => { const cell = document.createElement('td'); cell.append(control); row.append(cell); });
+    const netProceeds = input('number', variant.globalNetProceedsUsd); netProceeds.min = '0.01'; netProceeds.step = '0.01';
+    [sku, color, size, stock, netProceeds].forEach((control) => { const cell = document.createElement('td'); cell.append(control); row.append(cell); });
     const participateCell = document.createElement('td'); const participate = input('checkbox'); participate.checked = variant.participateInPublish; participateCell.append(participate); row.append(participateCell);
     const primaryCell = document.createElement('td'); const primary = primaryFor(variant.id); primaryCell.textContent = primary ? primary.original_filename : '未设置'; row.append(primaryCell);
     const action = document.createElement('td'); action.append(button('保存', 'button secondary small', async () => {
       try {
-        await api(`/api/products/${state.review.id}/variants/${variant.id}`, { method: 'PATCH', body: JSON.stringify({ sellerSku: sku.value, color: color.value || null, size: size.value || null, stock: Number(stock.value), participateInPublish: participate.checked }) });
+        await api(`/api/products/${state.review.id}/variants/${variant.id}`, { method: 'PATCH', body: JSON.stringify({ sellerSku: sku.value, color: color.value || null, size: size.value || null, stock: Number(stock.value), globalNetProceedsUsd: netProceeds.value ? Number(netProceeds.value) : null, participateInPublish: participate.checked }) });
         toast(`规格 ${sku.value} 已保存`); await loadReview(state.review.id);
       } catch (error) { toast(error.message, true); }
     })); row.append(action); body.append(row);
@@ -521,8 +525,15 @@ function renderMedia() {
     const card = document.createElement('article'); card.className = 'media-card';
     const image = document.createElement('img'); image.src = `/api/products/${state.review.id}/media/${media.id}/content`; image.alt = media.alt_text || ''; image.loading = 'lazy'; card.append(image);
     const name = document.createElement('small'); name.textContent = `${media.role} · ${media.original_filename}`; card.append(name);
+    const status = document.createElement('small'); status.className = `media-status ${media.validation_status === 'ready' ? 'good' : ''}`; status.textContent = `审核：${media.validation_status || 'pending'}${media.mercado_picture_id ? ' · 已上传美客多' : ''}`; card.append(status);
     const select = document.createElement('select'); select.append(option('', '关联到颜色规格'));
     state.review.variants.forEach((variant) => select.append(option(variant.id, `${variant.color || variant.size || '规格'} · ${variant.sellerSku}`))); card.append(select);
+    card.append(button('审核通过', 'button ghost small wide', async () => {
+      try {
+        await api(`/api/products/${state.review.id}/media/${media.id}`, { method: 'PATCH', body: JSON.stringify({ validationStatus: 'ready' }) });
+        toast('图片已标记为审核通过'); await loadReview(state.review.id);
+      } catch (error) { toast(error.message, true); }
+    }));
     card.append(button('设为该规格主图', 'button secondary small wide', async () => {
       if (!select.value) return toast('请先选择规格', true);
       try {
@@ -552,8 +563,11 @@ function renderListings() {
     const stack = document.createElement('div'); stack.className = 'field-stack';
     const controls = {};
     for (const field of [
-      ['title', '西班牙语标题', listing.title || '', 'input'], ['categoryId', '类目 ID', listing.categoryId || '', 'input'],
-      ['familyName', 'Family 名称', listing.familyName || '', 'input'], ['descriptionEnglish', 'English Description', listing.descriptionEnglish || '', 'textarea'],
+      ['title', '西班牙语标题', listing.title || '', 'input'], ['categoryId', '站点类目 ID', listing.categoryId || '', 'input'],
+      ['globalCategoryId', 'CBT 全局类目 ID', listing.familyData?.globalCategoryId || '', 'input'],
+      ['familyName', 'Family 名称（English，≤60字符）', listing.familyName || '', 'input'], ['descriptionEnglish', 'English Description', listing.descriptionEnglish || '', 'textarea'],
+      ['globalAttributes', 'CBT 必填属性 JSON', JSON.stringify(listing.familyData?.globalAttributes || {}, null, 2), 'textarea'],
+      ['globalSaleTerms', 'CBT Sale Terms JSON 数组', JSON.stringify(listing.familyData?.globalSaleTerms || [], null, 2), 'textarea'],
       ['requiredAttributes', '必填属性 JSON', JSON.stringify(listing.requiredAttributes || {}, null, 2), 'textarea']
     ]) {
       const label = document.createElement('label'); label.textContent = field[1]; const control = document.createElement(field[3]); control.value = field[2]; if (field[3] === 'textarea') control.rows = field[0] === 'descriptionEnglish' ? 5 : 6; control.dataset.field = field[0]; controls[field[0]] = control; label.append(control); stack.append(label);
@@ -561,13 +575,16 @@ function renderListings() {
     stack.append(button('保存刊登资料', 'button secondary', async () => {
       try {
         const requiredAttributes = controls.requiredAttributes.value.trim() ? JSON.parse(controls.requiredAttributes.value) : {};
-        await api(`/api/products/${state.review.id}/listings/${site.id}`, { method: 'PUT', body: JSON.stringify({ title: controls.title.value, categoryId: controls.categoryId.value, familyName: controls.familyName.value, descriptionEnglish: controls.descriptionEnglish.value, requiredAttributes, currency: site.currency }) });
+        const globalAttributes = controls.globalAttributes.value.trim() ? JSON.parse(controls.globalAttributes.value) : {};
+        const globalSaleTerms = controls.globalSaleTerms.value.trim() ? JSON.parse(controls.globalSaleTerms.value) : [];
+        if (!Array.isArray(globalSaleTerms)) throw new Error('CBT Sale Terms 必须是 JSON 数组');
+        await api(`/api/products/${state.review.id}/listings/${site.id}`, { method: 'PUT', body: JSON.stringify({ title: controls.title.value, categoryId: controls.categoryId.value, familyName: controls.familyName.value, familyData: { ...(listing.familyData || {}), globalCategoryId: controls.globalCategoryId.value.trim() || null, globalAttributes, globalSaleTerms }, descriptionEnglish: controls.descriptionEnglish.value, requiredAttributes, currency: site.currency }) });
         toast(`${site.name} 刊登资料已保存`); await loadReview(state.review.id);
       } catch (error) { toast(error.message, true); }
     })); card.append(stack);
 
     const priceWrap = document.createElement('div'); priceWrap.className = 'price-table'; const table = document.createElement('table'); const tbody = document.createElement('tbody');
-    const header = document.createElement('thead'); const headerRow = document.createElement('tr'); ['规格', '正常价', '促销价'].forEach((text) => { const th = document.createElement('th'); th.textContent = text; headerRow.append(th); }); header.append(headerRow); table.append(header);
+    const header = document.createElement('thead'); const headerRow = document.createElement('tr'); ['规格', '预估正常售价 USD', '预估促销售价 USD'].forEach((text) => { const th = document.createElement('th'); th.textContent = text; headerRow.append(th); }); header.append(headerRow); table.append(header);
     for (const variant of state.review.variants.filter((item) => item.participateInPublish)) {
       const saved = state.review.listingVariants.find((item) => item.variantId === variant.id && item.listingId === listing.id);
       const row = document.createElement('tr'); const label = document.createElement('td'); label.textContent = `${variant.color || variant.size || '规格'} · ${variant.sellerSku}`; const normalCell = document.createElement('td'); const normal = input('number', saved?.price); normal.min = '0'; normal.step = '0.01'; normal.dataset.variant = variant.id; normal.dataset.kind = 'normal'; normalCell.append(normal); const promoCell = document.createElement('td'); const promo = input('number', saved?.promotionalPrice); promo.min = '0'; promo.step = '0.01'; promo.dataset.variant = variant.id; promo.dataset.kind = 'promo'; promoCell.append(promo); row.append(label, normalCell, promoCell); tbody.append(row);
@@ -614,11 +631,11 @@ async function calculateQuotes() {
     for (const quote of data.quotes) {
       const card = document.querySelector(`.country-card[data-site="${quote.site}"]`);
       if (!card) continue;
-      card.querySelectorAll('[data-kind="normal"]').forEach((control) => { control.value = quote.normal.price; });
-      card.querySelectorAll('[data-kind="promo"]').forEach((control) => { control.value = quote.promotion.price; });
+      card.querySelectorAll('[data-kind="normal"]').forEach((control) => { control.value = (quote.normal.price / quote.basis.siteCurrencyPerUsd).toFixed(2); });
+      card.querySelectorAll('[data-kind="promo"]').forEach((control) => { control.value = (quote.promotion.price / quote.basis.siteCurrencyPerUsd).toFixed(2); });
     }
     $('quoteResults').textContent = data.quotes.map((quote) =>
-      `${quote.country}: ${quote.normal.price} ${quote.currency} / 促销 ${quote.promotion.price} / 净收益 ${quote.promotion.netProfitUsd} USD / 利润率 ${(quote.promotion.netMarginRate * 100).toFixed(1)}%`
+      `${quote.country}: ${quote.normal.price} ${quote.currency}（API ${(quote.normal.price / quote.basis.siteCurrencyPerUsd).toFixed(2)} USD）/ 促销 ${quote.promotion.price} / 净收益 ${quote.promotion.netProfitUsd} USD / 利润率 ${(quote.promotion.netMarginRate * 100).toFixed(1)}%`
     ).join('　｜　');
     toast('三国价格已计算并填入，确认后再保存');
   } catch (error) { toast(error.message, true); }
@@ -689,7 +706,7 @@ async function discoverCategories() {
   try {
     const id = await accountId();
     const spanishTitle = state.review.listings.find((item) => item.title)?.title || state.review.originalTitle;
-    const data = await api(`/api/integrations/mercadolibre/accounts/${id}/category-discovery`, { method: 'POST', body: JSON.stringify({ query: spanishTitle, sites: sites.map((site) => site.id), limit: 5 }) });
+    const data = await api(`/api/integrations/mercadolibre/accounts/${id}/category-discovery`, { method: 'POST', body: JSON.stringify({ query: spanishTitle, sites: ['CBT', ...sites.map((site) => site.id)], limit: 5 }) });
     const container = $('categorySuggestions'); container.replaceChildren(); container.classList.remove('hidden');
     data.results.forEach((result) => { const box = document.createElement('article'); box.className = 'suggestion-site'; const heading = document.createElement('h4'); heading.textContent = result.site; box.append(heading); result.suggestions.forEach((item) => { const line = document.createElement('span'); line.className = 'suggestion-item'; line.textContent = `${item.categoryId} · ${item.categoryName}`; box.append(line); }); container.append(box); });
   } catch (error) { toast(error.message, true); }
@@ -707,24 +724,82 @@ async function preparePublish() {
 
 function renderPreflight(data) {
   const local = data.local || data; const summary = local.summary || {};
-  const metrics = [['目标站点', (summary.targetSites || []).join(' / ') || '—'], ['规格数量', summary.variantCount ?? '—'], ['图片数量', summary.imageCount ?? '—'], ['刊登数量', summary.listingCount ?? '—']];
+  const proceeds = summary.globalNetProceedsUsd || [];
+  const proceedsText = proceeds.length ? `${Math.min(...proceeds.map((item) => item.amount))}–${Math.max(...proceeds.map((item) => item.amount))} USD` : '—';
+  const metrics = [['目标站点', (summary.targetSites || []).join(' / ') || '—'], ['规格数量', summary.variantCount ?? '—'], ['图片数量', summary.imageCount ?? '—'], ['UP净收益', proceedsText]];
   $('preflightSummary').replaceChildren(...metrics.map(([label, value]) => { const card = document.createElement('article'); card.className = 'metric'; const span = document.createElement('span'); span.textContent = label; const strong = document.createElement('strong'); strong.textContent = value; card.append(span, strong); return card; }));
   const ok = data.ok ?? local.valid; $('preflightBadge').textContent = ok ? '预检通过' : '需要修复'; $('preflightBadge').className = `status-pill ${ok ? 'good' : 'bad'}`;
-  const issues = [...(local.errors || []), ...(local.warnings || []).map((item) => ({ ...item, warning: true })), ...(data.remoteErrors || [])];
+  const issues = [
+    ...(local.errors || []),
+    ...(local.warnings || []).map((item) => ({ ...item, warning: true })),
+    ...(data.remoteErrors || []),
+    ...(data.missingRequiredAttributes || []).map((item) => ({
+      ...item,
+      code: item.categoryId?.startsWith('CBT') ? 'missing_cbt_attribute' : 'missing_local_calibration_attribute',
+      warning: !item.categoryId?.startsWith('CBT')
+    }))
+  ];
   const container = $('preflightIssues'); container.replaceChildren(); container.className = 'issues';
   if (!issues.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '没有发现阻塞项。'; container.append(empty); }
   issues.forEach((item) => { const node = document.createElement('div'); node.className = `issue${item.warning ? ' warning' : ''}`; node.textContent = `${item.code}${item.site ? ` · ${item.site}` : ''}${item.sellerSku ? ` · ${item.sellerSku}` : ''}${item.attributeId ? ` · ${item.attributeId}` : ''}`; container.append(node); });
   state.preview = data.preview || {}; $('payloadPreview').textContent = JSON.stringify(state.preview, null, 2);
+  if (data.readOnly === true) state.remotePreflightOk[$('publishProductSelect').value] = Boolean(data.ok);
 }
 
 async function runLocalPreflight() {
   const productId = $('publishProductSelect').value; if (!productId) return toast('请先选择产品', true);
+  state.remotePreflightOk[productId] = false;
   try { renderPreflight(await api(`/api/publish/${productId}/preflight`)); await loadJobs(); } catch (error) { toast(error.message, true); }
 }
 
 async function runRemotePreflight() {
   const productId = $('publishProductSelect').value; if (!productId) return toast('请先选择产品', true);
   try { const id = await accountId(); renderPreflight(await api(`/api/publish/${productId}/remote-preflight`, { method: 'POST', body: JSON.stringify({ accountId: id }) })); await loadJobs(); } catch (error) { toast(error.message, true); }
+}
+
+async function uploadMeliPictures() {
+  const productId = $('publishProductSelect').value; if (!productId) return toast('请先选择产品', true);
+  if (!window.confirm('将已审核且已关联规格的图片上传到美客多图片服务？此操作不会创建刊登。')) return;
+  try {
+    const id = await accountId();
+    const result = await api(`/api/publish/${productId}/upload-pictures`, {
+      method: 'POST', body: JSON.stringify({ accountId: id, confirmation: 'UPLOAD_PICTURES' })
+    });
+    $('publishResult').textContent = JSON.stringify(result, null, 2);
+    toast(`图片处理完成：新上传 ${result.uploaded?.length ?? 0} 张`);
+    await runRemotePreflight();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function publishLive() {
+  const productId = $('publishProductSelect').value; if (!productId) return toast('请先选择产品', true);
+  if (!state.remotePreflightOk[productId]) return toast('请先完成并通过远程只读预检', true);
+  if ($('publishConfirmation').value.trim() !== 'PUBLISH') return toast('请先输入 PUBLISH', true);
+  const requestItems = state.preview?.request?.body || [];
+  if (!requestItems.length) return toast('远程预检预览已失效，请重新运行远程预检', true);
+  const targetSites = state.preview?.summary?.sites?.map((site) => site.id).join(' / ') || '—';
+  const imageCount = new Set(requestItems.flatMap((item) => item.pictures?.map((picture) => picture.id) || [])).size;
+  const proceeds = requestItems.map((item) => item.global_net_proceeds).join(', ');
+  if (!window.confirm(`即将正式创建 Family\n国家：${targetSites}\nUser Product：${requestItems.length} 个\n图片：${imageCount} 张\nglobal_net_proceeds：${proceeds} USD\n\n确认继续？`)) return;
+  try {
+    const id = await accountId();
+    state.publishRequestKeys ??= {};
+    state.publishRequestKeys[productId] ??= crypto.randomUUID();
+    const result = await api(`/api/publish/${productId}/live`, {
+      method: 'POST', body: JSON.stringify({
+        accountId: id, confirmation: 'PUBLISH', requestKey: state.publishRequestKeys[productId]
+      })
+    });
+    $('publishResult').textContent = JSON.stringify(result, null, 2);
+    $('publishConfirmation').value = '';
+    toast(result.idempotentReplay ? '已返回原发布结果，没有重复创建' : 'Family 发布请求已完成');
+    await loadProducts(); await loadJobs();
+  } catch (error) {
+    if (state.publishRequestKeys && !['meli_transport_error', 'publish_reconciliation_required'].includes(error.code)) {
+      delete state.publishRequestKeys[productId];
+    }
+    toast(error.message, true); await loadJobs();
+  }
 }
 
 async function loadJobs() {
@@ -776,5 +851,6 @@ $('uploadMedia').addEventListener('click', uploadMedia); $('discoverCategories')
 $('inspectExistingItems').addEventListener('click', inspectExistingItems);
 $('calculateQuotes').addEventListener('click', calculateQuotes);
 $('publishProductSelect').addEventListener('change', loadJobs); $('runLocalPreflight').addEventListener('click', runLocalPreflight); $('runRemotePreflight').addEventListener('click', runRemotePreflight); $('refreshJobs').addEventListener('click', loadJobs);
+$('uploadMeliPictures').addEventListener('click', uploadMeliPictures); $('publishLive').addEventListener('click', publishLive);
 $('copyPreview').addEventListener('click', async () => { await navigator.clipboard.writeText(JSON.stringify(state.preview, null, 2)); toast('JSON 已复制'); });
 boot().catch((error) => showLogin(error.message));

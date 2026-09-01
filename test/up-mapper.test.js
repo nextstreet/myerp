@@ -18,13 +18,20 @@ const variants = colors.map((color, index) => ({
   sellerSku: `DEMO-${index + 1}`,
   color,
   stock: 10,
+  globalNetProceedsUsd: 12,
   participateInPublish: true
 }));
 const listings = [
-  { site: 'MLM', title: 'Organizador De Escritorio De Malla Metálica', categoryId: 'MLM-DEMO', currency: 'MXN', price: 399 },
-  { site: 'MCO', title: 'Organizador De Escritorio En Malla Metálica', categoryId: 'MCO-DEMO', currency: 'COP', price: 89900 },
-  { site: 'MLC', title: 'Organizador De Escritorio Malla Metálica', categoryId: 'MLC-DEMO', currency: 'CLP', price: 19900 }
-];
+  { site: 'MLM', title: 'Producto De Demostración', categoryId: 'MLM-DEMO', currency: 'USD', price: 19 },
+  { site: 'MCO', title: 'Producto De Demostración', categoryId: 'MCO-DEMO', currency: 'USD', price: 18 },
+  { site: 'MLC', title: 'Producto De Demostración', categoryId: 'MLC-DEMO', currency: 'USD', price: 17 }
+].map((listing) => ({
+  ...listing,
+  familyName: 'Synthetic Demo Family',
+  descriptionEnglish: 'Synthetic English description.',
+  familyData: { globalCategoryId: 'CBT-DEMO', globalAttributes: {} },
+  globalCategoryId: 'CBT-DEMO'
+}));
 const mediaByVariant = Object.fromEntries(variants.map((variant) => [variant.id, [`image-${variant.id}`]]));
 
 test('six variants remain six User Products in one family', () => {
@@ -72,4 +79,21 @@ test('variant pricing must cover every selected variant for each site', () => {
   const result = preflightProductFamily({ product, variants, listings: partialListings, mediaByVariant });
   assert.equal(result.errors.filter((error) => error.code === 'missing_variant_price').length, 3);
   assert.ok(result.errors.every((error) => error.variantId !== 'variant-1' || error.code !== 'missing_variant_price'));
+});
+
+test('preflight requires an explicit global net proceeds amount for every User Product', () => {
+  const incomplete = variants.map((variant) => ({ ...variant }));
+  incomplete[4].globalNetProceedsUsd = null;
+  const result = preflightProductFamily({ product, variants: incomplete, listings, mediaByVariant });
+  assert.ok(result.errors.some((error) => error.code === 'missing_global_net_proceeds' && error.variantId === 'variant-5'));
+});
+
+test('preflight requires one short English family name across all sites', () => {
+  const conflicting = listings.map((listing, index) => ({
+    ...listing,
+    familyName: index === 2 ? '不同规格名称' : listing.familyName
+  }));
+  const result = preflightProductFamily({ product, variants, listings: conflicting, mediaByVariant });
+  assert.ok(result.errors.some((error) => error.code === 'conflicting_family_names'));
+  assert.ok(result.errors.some((error) => error.code === 'family_name_must_be_english'));
 });
