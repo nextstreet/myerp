@@ -44,7 +44,7 @@ CONSOLE_SESSION_TTL_SECONDS=28800
 
 ## 3. Restart safely
 
-Run the database migration command during upgrade. Version 0.7 adds migration `006_global_up_publish.sql` for picture-upload state, `global_net_proceeds`, Family/CBT/site identifiers and publish reconciliation records.
+Run the database migration command during upgrade. Migration `006_global_up_publish.sql` adds picture-upload state, `global_net_proceeds`, Family/CBT/site identifiers and publish reconciliation records. Migration `007_variant_media_selection.sql` materializes the former shared-image behavior into explicit per-variant selections so the console and the final UP request show the same image set.
 
 ```bash
 docker compose run --rm api npm run db:migrate
@@ -61,7 +61,7 @@ Open `https://mercado.cybertao.space/console` and enter the management password.
 1. **Products** — filter products and open AI processing or manual review.
 2. **Import** — create the source product and all variants in one transaction; the six-color helper creates six distinct Seller SKUs.
 3. **AI content** — optionally analyze selected images, confirm product facts, create editable three-site copy and generate pending-review image drafts.
-4. **Review** — edit variants, upload images, assign one primary image per color, discover site categories, save English/Spanish content and calculate/store independent site prices.
+4. **Review** — edit variants, upload images, use the numbered gallery and per-variant number map to add/remove images, assign one primary image per color, discover site categories, save English/Spanish content and calculate/store independent site prices. Removing a number only removes that image from the selected variant; it does not delete the stored image or its Mercado Libre picture ID.
 5. **Publish preflight** — run local and authenticated read-only preflight, inspect the exact Global UP Family request, upload reviewed images, and view redacted job/result logs.
 
 ## Supervised publication

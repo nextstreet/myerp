@@ -1,4 +1,5 @@
 import { buildInternalUpDraft, preflightProductFamily } from '../domain/up-mapper.js';
+import { effectiveMediaForVariants } from '../domain/media-selection.js';
 import { buildGlobalUpFamilyPreview } from '../integrations/mercadolibre/global-up-mapper.js';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -61,21 +62,9 @@ async function loadFamily(db, productId) {
     error.code = 'product_not_found';
     throw error;
   }
-  const mediaValue = (row) => ({
-    id: row.media_id, externalUrl: row.external_url, storageKey: row.storage_key,
-    mercadoPictureId: row.mercado_picture_id, validationStatus: row.validation_status,
-    mimeType: row.mime_type, originalFilename: row.original_filename, isPrimary: row.is_primary
+  const mediaByVariant = effectiveMediaForVariants({
+    variants: variantResult.rows, mediaRows: mediaResult.rows
   });
-  const mediaByVariant = {};
-  const sharedMedia = mediaResult.rows.filter((row) => !row.variant_id).map(mediaValue);
-  for (const row of mediaResult.rows.filter((item) => item.variant_id)) {
-    (mediaByVariant[row.variant_id] ??= []).push(mediaValue(row));
-  }
-  for (const variant of variantResult.rows) {
-    const own = mediaByVariant[variant.id] ?? [];
-    const ownIds = new Set(own.map((media) => media.id));
-    mediaByVariant[variant.id] = [...own, ...sharedMedia.filter((media) => !ownIds.has(media.id))].slice(0, 10);
-  }
   const pricesBySite = {};
   for (const row of listingVariantResult.rows) {
     (pricesBySite[row.site] ??= {})[row.variant_id] = Number(row.price);

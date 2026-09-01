@@ -491,7 +491,7 @@ async function loadReview(productId) {
     const quoteListing = state.review.listings.find((item) => item.targetProfitUsd !== null) || {};
     if (!$('quoteProfit').value && quoteListing.targetProfitUsd !== undefined) $('quoteProfit').value = quoteListing.targetProfitUsd ?? '';
     if (!$('quoteMargin').value && quoteListing.targetMarginRate !== undefined) $('quoteMargin').value = quoteListing.targetMarginRate ?? '';
-    renderReviewVariants(); renderMedia(); renderListings();
+    renderReviewVariants(); renderMedia(); renderVariantImageMap(); renderListings();
   } catch (error) { toast(error.message, true); }
 }
 
@@ -521,8 +521,10 @@ function renderReviewVariants() {
 function renderMedia() {
   const grid = $('mediaGrid'); grid.replaceChildren();
   if (!state.review.media.length) { const empty = document.createElement('div'); empty.className = 'panel empty'; empty.textContent = '还没有图片。'; grid.append(empty); return; }
-  for (const media of state.review.media.filter((item) => item.media_type === 'image')) {
+  const images = state.review.media.filter((item) => item.media_type === 'image');
+  for (const [index, media] of images.entries()) {
     const card = document.createElement('article'); card.className = 'media-card';
+    const number = document.createElement('span'); number.className = 'media-number'; number.textContent = index + 1; card.append(number);
     const image = document.createElement('img'); image.src = `/api/products/${state.review.id}/media/${media.id}/content`; image.alt = media.alt_text || ''; image.loading = 'lazy'; card.append(image);
     const name = document.createElement('small'); name.textContent = `${media.role} · ${media.original_filename}`; card.append(name);
     const status = document.createElement('small'); status.className = `media-status ${media.validation_status === 'ready' ? 'good' : ''}`; status.textContent = `审核：${media.validation_status || 'pending'}${media.mercado_picture_id ? ' · 已上传美客多' : ''}`; card.append(status);
@@ -534,6 +536,13 @@ function renderMedia() {
         toast('图片已标记为审核通过'); await loadReview(state.review.id);
       } catch (error) { toast(error.message, true); }
     }));
+    card.append(button('添加到该规格', 'button ghost small wide', async () => {
+      if (!select.value) return toast('请先选择规格', true);
+      try {
+        await api(`/api/products/${state.review.id}/variants/${select.value}/media/${media.id}`, { method: 'POST', body: JSON.stringify({ isPrimary: false, sortOrder: index + 1 }) });
+        toast(`图片 #${index + 1} 已加入规格`); await loadReview(state.review.id);
+      } catch (error) { toast(error.message, true); }
+    }));
     card.append(button('设为该规格主图', 'button secondary small wide', async () => {
       if (!select.value) return toast('请先选择规格', true);
       try {
@@ -541,6 +550,39 @@ function renderMedia() {
         toast('主图关联已保存'); await loadReview(state.review.id);
       } catch (error) { toast(error.message, true); }
     })); grid.append(card);
+  }
+}
+
+function effectiveMediaForVariant(variantId) {
+  const linked = state.review.variantMedia.filter((item) => item.variant_id === variantId);
+  return linked.map((item) => state.review.media.find((media) => media.id === item.media_id))
+    .filter(Boolean).slice(0, 10);
+}
+
+function renderVariantImageMap() {
+  const container = $('variantImageMap'); container.replaceChildren();
+  const images = state.review.media.filter((item) => item.media_type === 'image');
+  const numberById = new Map(images.map((media, index) => [media.id, index + 1]));
+  for (const variant of state.review.variants) {
+    const card = document.createElement('article'); card.className = 'panel variant-image-card';
+    const heading = document.createElement('div'); heading.className = 'variant-image-heading';
+    const title = document.createElement('strong'); title.textContent = `${variant.color || variant.size || '规格'} · ${variant.sellerSku}`;
+    const count = document.createElement('span'); const selected = effectiveMediaForVariant(variant.id); count.textContent = `${selected.length}/10 张`;
+    heading.append(title, count); card.append(heading);
+    const chips = document.createElement('div'); chips.className = 'image-number-list';
+    if (!selected.length) { const empty = document.createElement('span'); empty.className = 'muted'; empty.textContent = '未选择图片'; chips.append(empty); }
+    for (const media of selected) {
+      const chip = document.createElement('span'); chip.className = 'image-number-chip';
+      const label = document.createElement('span'); label.textContent = `#${numberById.get(media.id)}`; label.title = media.original_filename;
+      const remove = button('×', 'image-remove', async () => {
+        try {
+          await api(`/api/products/${state.review.id}/variants/${variant.id}/media/${media.id}`, { method: 'DELETE' });
+          toast(`已从 ${variant.sellerSku} 移除图片 #${numberById.get(media.id)}`); await loadReview(state.review.id);
+        } catch (error) { toast(error.message, true); }
+      });
+      remove.title = `从该规格移除 ${media.original_filename}`; chip.append(label, remove); chips.append(chip);
+    }
+    card.append(chips); container.append(card);
   }
 }
 

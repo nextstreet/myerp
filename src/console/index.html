@@ -143,6 +143,8 @@
           <div class="section-heading"><div><p class="eyebrow">MEDIA</p><h3>图片上传与颜色关联</h3></div></div>
           <div class="panel media-toolbar"><input id="mediaFile" type="file" accept="image/*" multiple><select id="mediaRole"><option value="original">原图</option><option value="white_background">白底图</option><option value="dimension">尺寸图</option><option value="feature">功能图</option><option value="scene">场景图</option></select><button id="uploadMedia" class="button secondary">批量上传图片</button></div>
           <div id="mediaGrid" class="media-grid"></div>
+          <div class="section-heading compact"><div><p class="eyebrow">VARIANT IMAGE MAP</p><h3>各规格已选图片</h3><p class="muted">编号对应上方图片。移除只解除该规格的选择，不删除原图。</p></div></div>
+          <div id="variantImageMap" class="variant-image-map"></div>
 
           <div class="section-heading"><div><p class="eyebrow">EXISTING ITEMS</p><h3>现有黑色刊登校准</h3></div><button id="inspectExistingItems" class="button secondary">只读获取</button></div>
           <div class="panel item-inspector">
