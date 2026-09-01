@@ -63,7 +63,9 @@ The internal UP draft intentionally does not pretend to be the final Mercado Lib
 - `global_net_proceeds` belongs to the UP root. The independent MLM/MCO/MLC price calculations remain review forecasts and are never silently substituted for this provider field.
 - Family creation sends English `family_name`, CBT category/attributes, stock, English description, uploaded picture IDs and `sites_to_sell`. It does not send a `title` or `variations` field.
 - Returned `siteless_family_id`, CBT Item, Siteless UP and site Item identifiers are persisted separately.
-- An accepted response with incomplete identifiers is saved as far as possible and moves the product into reconciliation-required failure handling. A new Family request is blocked to prevent duplicates.
+- Existing-Family mode resolves the Family ID from owned CBT/local Item fields, provider-advertised `site_items`, then the child User Product detail. A local MCO/MLC/MLM category is never treated as proof of a CBT category mismatch.
+- An existing provider-read Family name is preserved during incremental updates; adding variants cannot silently rename the Family.
+- An accepted response with mixed results or incomplete identifiers is saved as far as possible and moves the product into the explicit `reconciliation_required` state. A new Family request is blocked to prevent duplicates.
 
 ## v0.4 listing-readiness boundary
 

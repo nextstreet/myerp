@@ -91,6 +91,26 @@ test('existing Family preview targets the Siteless Family with PUT', () => {
   assert.equal(preview.summary.sitelessFamilyId, '123456789');
 });
 
+test('existing Family preview preserves the provider-read Family name', () => {
+  const preview = buildGlobalUpFamilyPreview({
+    product: { originalTitle: 'Draft name', familyName: 'Changed draft name' },
+    variants: [{ id: 'v1', sellerSku: 'SKU-WHITE', color: 'White', stock: 10,
+      globalNetProceedsUsd: 6, participateInPublish: true }],
+    listings: [{ site: 'MCO', currency: 'USD', globalCategoryId: 'CBT388338',
+      descriptionEnglish: 'Synthetic description.', familyData: {} }],
+    mediaByVariant: { v1: [{ mercadoPictureId: 'PIC-WHITE' }] },
+    publishTarget: {
+      mode: 'update', sitelessFamilyId: '123456789', sourceItemId: 'CBT123',
+      existingFamilyName: 'Original Family Name'
+    }
+  });
+
+  assert.equal(preview.request.body[0].family_name, 'Original Family Name');
+  assert.equal(preview.summary.familyName, 'Original Family Name');
+  assert.equal(preview.summary.requestedFamilyName, 'Changed draft name');
+  assert.equal(preview.summary.familyNamePreserved, true);
+});
+
 test('existing Family preview refuses to fall back to creating a Family', () => {
   assert.throws(() => buildGlobalUpFamilyPreview({
     product: { originalTitle: 'Synthetic organizer' }, variants: [], listings: [],

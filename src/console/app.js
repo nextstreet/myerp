@@ -11,7 +11,7 @@ const sites = [
 const statusLabels = {
   pending_import: '待导入', pending_ai: '待AI处理', ai_processing: 'AI处理中',
   pending_review: '待审核', pending_publish: '待发布', publishing: '发布中',
-  published: '已发布', publish_failed: '发布失败', paused: '已暂停'
+  published: '已发布', publish_failed: '发布失败', reconciliation_required: '平台已受理·待对账', paused: '已暂停'
 };
 const $ = (id) => document.getElementById(id);
 
@@ -91,7 +91,7 @@ function button(label, className, handler) {
 
 function statusPill(status) {
   const node = document.createElement('span');
-  node.className = `status-pill ${status === 'published' ? 'good' : status === 'publish_failed' ? 'bad' : ''}`;
+  node.className = `status-pill ${status === 'published' ? 'good' : ['publish_failed', 'reconciliation_required'].includes(status) ? 'bad' : ''}`;
   node.textContent = statusLabels[status] || status;
   return node;
 }
@@ -805,6 +805,7 @@ function renderPreflight(data) {
     ...(local.errors || []),
     ...(local.warnings || []).map((item) => ({ ...item, warning: true })),
     ...(data.remoteErrors || []),
+    ...(data.remoteWarnings || []).map((item) => ({ ...item, warning: true })),
     ...(data.missingRequiredAttributes || []).map((item) => ({
       ...item,
       code: item.categoryId?.startsWith('CBT') ? 'missing_cbt_attribute' : 'missing_local_calibration_attribute',

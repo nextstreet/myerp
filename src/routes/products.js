@@ -5,7 +5,7 @@ import { mergeReviewFields, updateConfirmations } from '../domain/review-merge.j
 const SITE_CODES = new Set(['MLM', 'MCO', 'MLC']);
 const STATUSES = new Set([
   'pending_import', 'pending_ai', 'ai_processing', 'pending_review',
-  'pending_publish', 'publishing', 'published', 'publish_failed', 'paused'
+  'pending_publish', 'publishing', 'published', 'publish_failed', 'reconciliation_required', 'paused'
 ]);
 const PRODUCT_REVIEW_FIELDS = [
   'sourceUrl', 'originalTitle', 'categoryHint', 'purchasePriceCny', 'packedWeightG',
@@ -425,7 +425,7 @@ export async function productsRoutes(app) {
   app.patch('/:id/status', async (request, reply) => {
     const status = request.body?.status;
     if (!STATUSES.has(status)) throw badRequest('Unsupported status');
-    if (status === 'publishing' || status === 'published') {
+    if (status === 'publishing' || status === 'published' || status === 'reconciliation_required') {
       throw badRequest('Publishing states can only be set by the publish workflow');
     }
     const result = await app.db.query('UPDATE products SET status = $1 WHERE id = $2 RETURNING *', [status, request.params.id]);

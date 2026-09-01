@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { withTransaction } from '../db/pool.js';
 import { normalizeFamilyPublishResult } from '../integrations/mercadolibre/publish-result.js';
+import { compareCbtCategory } from '../domain/publish-target.js';
 
 function toProduct(row) {
   return {
@@ -144,24 +145,53 @@ async function resolvePublishTarget(app, accountId, request, family) {
       'existing_family_source_item_required');
   }
   const inspection = await app.mercadoLibreOAuth.inspectItem(accountId, sourceItemId);
-  const sitelessFamilyId = String(inspection.globalItem?.familyId ?? '').trim();
+  const sitelessFamilyId = String(
+    inspection.globalItem?.familyId ?? inspection.item?.familyId ?? inspection.userProduct?.familyId ?? ''
+  ).trim();
   if (!sitelessFamilyId) {
     throw problem('The source item does not expose a Siteless Family ID', 'existing_family_id_unavailable', 422,
-      { sourceItemId });
+      {
+        sourceItemId,
+        cbtItemId: inspection.globalItem?.id ?? inspection.item?.cbtItemId ?? null,
+        userProductId: inspection.userProduct?.id ?? inspection.item?.userProductId ?? null,
+        lookups: inspection.lookups ?? {}
+      });
   }
   const expectedCategoryId = family.listings.find((listing) => listing.globalCategoryId)?.globalCategoryId ?? null;
-  const existingCategoryId = inspection.globalItem?.categoryId ?? null;
-  if (expectedCategoryId && existingCategoryId && expectedCategoryId !== existingCategoryId) {
+  const globalCategoryId = inspection.globalItem?.categoryId ?? null;
+  const localCategoryId = inspection.item?.categoryId ?? null;
+  // A local category (MCO/MLC/MLM) is not directly comparable with a CBT
+  // category. Only reject a proven mismatch within the same category namespace.
+  const categoryComparison = compareCbtCategory(expectedCategoryId, globalCategoryId, localCategoryId);
+  const existingCategoryId = categoryComparison.existingCategoryId;
+  if (categoryComparison.status === 'mismatched') {
     throw problem('The source Family belongs to a different CBT category', 'existing_family_category_mismatch', 422,
-      { sourceItemId, expectedCategoryId, existingCategoryId });
+      { sourceItemId, expectedCategoryId, existingCategoryId: globalCategoryId });
   }
+  const inspectedSkus = new Set();
+  for (const inspected of [inspection.item, inspection.globalItem]) {
+    if (inspected?.sellerCustomField) inspectedSkus.add(String(inspected.sellerCustomField));
+    const sku = inspected?.attributes?.find((attribute) => attribute.id === 'SELLER_SKU')?.valueName;
+    if (sku) inspectedSkus.add(String(sku));
+  }
+  const requestedSkus = family.variants.filter((variant) => variant.participateInPublish !== false)
+    .map((variant) => variant.sellerSku);
+  const duplicateSourceSkus = requestedSkus.filter((sku) => inspectedSkus.has(String(sku)));
   return {
     mode,
     sourceItemId,
     sourceCbtItemId: inspection.globalItem?.id ?? inspection.item?.cbtItemId ?? null,
     sitelessFamilyId,
     existingCategoryId,
-    existingFamilyName: inspection.globalItem?.familyName ?? inspection.item?.familyName ?? null
+    existingFamilyName: inspection.globalItem?.familyName ?? inspection.item?.familyName ?? null,
+    categoryVerification: categoryComparison.status,
+    duplicateSourceSkus,
+    resolution: {
+      globalItemId: inspection.globalItem?.id ?? null,
+      localItemId: inspection.item?.id ?? null,
+      userProductId: inspection.userProduct?.id ?? inspection.item?.userProductId ?? null,
+      lookups: inspection.lookups ?? {}
+    }
   };
 }
 
@@ -283,7 +313,10 @@ async function persistPublishResult(app, family, normalized, rawPayload) {
   });
   const complete = Boolean(normalized.familyId) && !missingSkus.length && !failedProducts.length
     && !incompleteIdentifiers.length;
-  const publishStatus = complete ? 'published' : 'publish_failed';
+  // HTTP success with incomplete identifiers is not a proven publication and
+  // is also not a safe-to-retry failure: Mercado Libre may already have
+  // created some resources. Keep it in an explicit reconciliation state.
+  const publishStatus = complete ? 'published' : 'reconciliation_required';
 
   // Normalize an arbitrary value into something PostgreSQL can safely store in
   // a jsonb column, then serialize it explicitly as a JSON string. node-postgres
@@ -415,12 +448,23 @@ export async function publishRoutes(app) {
     const missingGlobalAttributes = missingRequiredAttributes.filter((item) => item.categoryId?.startsWith('CBT'));
     const preview = previewForCategory;
     const remoteErrors = [];
+    const remoteWarnings = [];
     if (!capabilities.globalSelling) remoteErrors.push({ code: 'account_not_global_selling' });
     if (!capabilities.userProductSeller) remoteErrors.push({ code: 'user_product_seller_tag_missing' });
     const globalCategoryMetadata = categoryRequirements.categories.find((item) => item.categoryId === globalCategoryId);
     if (globalCategoryId && !globalCategoryMetadata?.ok) remoteErrors.push({ code: 'global_category_metadata_lookup_failed' });
     if (missingGlobalAttributes.length) remoteErrors.push({ code: 'global_required_attributes_missing', count: missingGlobalAttributes.length });
     if (!globalCategoryId) remoteErrors.push({ code: 'global_category_missing' });
+    if (publishTarget.mode === 'update' && publishTarget.categoryVerification !== 'matched') {
+      remoteWarnings.push({ code: 'existing_family_global_category_not_exposed' });
+    }
+    if (publishTarget.duplicateSourceSkus?.length) {
+      remoteWarnings.push({ code: 'source_item_sku_already_selected', sellerSkus: publishTarget.duplicateSourceSkus });
+    }
+    if (publishTarget.mode === 'update' && publishTarget.existingFamilyName
+      && publishTarget.existingFamilyName !== family.product.familyName) {
+      remoteWarnings.push({ code: 'existing_family_name_preserved', value: publishTarget.existingFamilyName });
+    }
     const missingPublishablePictures = preview?.request.body.filter((item) => !item.pictures.length).length ?? 0;
     if (missingPublishablePictures) remoteErrors.push({ code: 'picture_upload_pending', count: missingPublishablePictures });
     const response = {
@@ -433,6 +477,7 @@ export async function publishRoutes(app) {
       missingRequiredAttributes,
       missingGlobalAttributes,
       remoteErrors,
+      remoteWarnings,
       preview,
       publishTarget
     };
@@ -445,7 +490,7 @@ export async function publishRoutes(app) {
       `, [family.product.id, site, `preflight:${randomUUID()}`,
         { operation: 'read_only_remote_preflight', accountId, variantCount: local.summary.variantCount,
           publishMode: publishTarget.mode, sitelessFamilyId: publishTarget.sitelessFamilyId ?? null },
-        { ok: response.ok, errorCount: remoteErrors.length, missingRequiredAttributeCount: missingRequiredAttributes.length,
+        { ok: response.ok, errorCount: remoteErrors.length, warningCount: remoteWarnings.length, missingRequiredAttributeCount: missingRequiredAttributes.length,
           missingGlobalAttributeCount: missingGlobalAttributes.length },
         remoteErrors[0]?.code ?? null, remoteErrors.length ? 'Remote preflight requires corrections' : null,
         response.ok ? 'validation_passed' : 'validation_failed']);
@@ -486,8 +531,6 @@ export async function publishRoutes(app) {
     }
     const loaded = await loadFamily(app.db, request.params.productId);
     const family = scopeFamilyToSites(loaded, requestedSites(request, loaded));
-    const publishTarget = await resolvePublishTarget(app, accountId, request, family);
-    const targetedFamily = { ...family, publishTarget };
     const replayKey = `publish:${requestKey}:${family.listings[0]?.site ?? 'MLM'}`;
     const reconciliation = await app.db.query(`
       SELECT id FROM publish_jobs
@@ -511,6 +554,11 @@ export async function publishRoutes(app) {
         'publish_request_already_claimed', 409);
     }
 
+    // Resolve provider state only after the idempotent replay checks. A
+    // temporary read failure must not hide a result that was already recorded.
+    const publishTarget = await resolvePublishTarget(app, accountId, request, family);
+    const targetedFamily = { ...family, publishTarget };
+
     const local = preflightProductFamily(family);
     if (!local.valid) throw problem('Product family failed local preflight', 'preflight_failed', 422, local);
     const capabilities = await app.mercadoLibreOAuth.inspectCapabilities(accountId);
@@ -525,7 +573,7 @@ export async function publishRoutes(app) {
       throw problem('Current Mercado Libre category requirements are not satisfied', 'required_attributes_missing', 422, { missingRequiredAttributes });
     }
     if (preview.request.body.some((item) => !item.pictures.length)) {
-      throw problem('Every selected variant needs an uploaded picture or HTTPS source', 'picture_upload_pending', 422);
+      throw problem('Every selected variant needs at least one Mercado Libre picture ID', 'picture_upload_pending', 422);
     }
 
     const claimed = existing.rowCount
@@ -581,14 +629,20 @@ export async function publishRoutes(app) {
     if (normalized.providerRejected) {
       const first = normalized.userProducts[0];
       const code = first?.error ?? 'meli_family_validation_failed';
-      await app.db.query("UPDATE products SET status='publish_failed' WHERE id=$1", [family.product.id]);
+      const partial = normalized.providerPartiallyAccepted === true;
+      await app.db.query(`UPDATE products SET status=$2 WHERE id=$1`, [family.product.id,
+        partial ? 'reconciliation_required' : 'publish_failed']);
       await recordPublishJobs(app, family, requestKey, {
         requestSummary: { endpoint: preview.request.endpoint, variantCount: local.summary.variantCount },
-        responseSummary: { ok: false, providerRejected: true, providerCode: code },
+        responseSummary: { ok: false, providerRejected: true, providerAccepted: partial, partialAcceptance: partial, providerCode: code },
         httpStatus: response.status, errorCode: String(code).slice(0, 200),
-        errorMessage: JSON.stringify(normalized.userProducts.map((u) => u.raw)).slice(0, 1500), status: 'failed'
+        errorMessage: JSON.stringify(normalized.userProducts.map((u) => u.raw)).slice(0, 1500),
+        status: partial ? 'reconciliation_required' : 'failed'
       });
-      throw problem('Mercado Libre rejected the Family during batch validation', 'meli_family_validation_rejected', 422,
+      throw problem(partial
+        ? 'Mercado Libre accepted part of the Family and rejected part of it. Do not republish until reconciled.'
+        : 'Mercado Libre rejected the Family during batch validation',
+      partial ? 'meli_family_partial_acceptance' : 'meli_family_validation_rejected', partial ? 409 : 422,
         { providerCode: code, reasons: normalized.userProducts.map((u) => u.raw) });
     }
     let saved;
@@ -599,12 +653,12 @@ export async function publishRoutes(app) {
           'meli_partial_family_response', 502, saved.issues);
       }
     } catch (error) {
-      await app.db.query("UPDATE products SET status='publish_failed' WHERE id=$1", [family.product.id]);
+      await app.db.query("UPDATE products SET status='reconciliation_required' WHERE id=$1", [family.product.id]);
       const rawBody = JSON.stringify(response?.payload ?? null);
       await recordPublishJobs(app, family, requestKey, {
         requestSummary: { endpoint: preview.request.endpoint, variantCount: local.summary.variantCount },
         responseSummary: { ok: false, partialResponse: true, providerAccepted: true }, httpStatus: response.status,
-        errorCode: error.code ?? 'meli_result_persist_failed', errorMessage: `${error.message}\nPAYLOAD: ${rawBody?.slice(0, 3000)}\n${error.stack ?? ''}`.slice(0, 6000), status: 'failed'
+        errorCode: error.code ?? 'meli_result_persist_failed', errorMessage: `${error.message}\nPAYLOAD: ${rawBody?.slice(0, 3000)}\n${error.stack ?? ''}`.slice(0, 6000), status: 'reconciliation_required'
       });
       throw error;
     }

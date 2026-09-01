@@ -6,13 +6,14 @@
 
 ## Included in v0.7.0
 
-- Official multi-UP Family creation through `POST /global/user-products/families`; every selected variant remains an independent Siteless User Product.
+- Official multi-UP Family creation and existing-Family increment through `POST/PUT /global/user-products/families`; every selected variant remains an independent Siteless User Product.
 - Reviewed local pictures are uploaded through `/pictures/items/upload` and only returned picture IDs enter the Family request.
 - Explicit `global_net_proceeds` per User Product, kept separate from the three marketplace price forecasts.
 - Current CBT and local category-attribute checks immediately before publication.
 - Server-side idempotency claim plus provider idempotency key reuse after uncertain transport failures.
 - Complete Family, CBT Item, Siteless UP and MLM/MCO/MLC Item identifier persistence.
-- Reconciliation lock after an accepted but incomplete provider response, preventing accidental duplicate publication.
+- Read-only Family resolution through the owned CBT item, its advertised marketplace children and User Product details; local and CBT category namespaces are never falsely compared.
+- Reconciliation lock and an explicit `平台已受理·待对账` state after an accepted, mixed or incomplete provider response, preventing accidental duplicate publication.
 - Two-stage operator safety: separate `UPLOAD_PICTURES` and `PUBLISH` confirmations, with country, UP count, proceeds and picture count shown before publication.
 
 - Optional AI workflow: products can remain fully manual, use text only, or analyze a user-selected image subset.
@@ -162,7 +163,7 @@ docker compose run --rm api npm run db:migrate
 docker compose up -d
 ```
 
-When upgrading, pulling the new image is not enough: run `npm run db:migrate` (or the Compose migration command above) so migration `006_global_up_publish.sql` and all earlier migrations are applied before restarting the API.
+When upgrading, pulling the new image is not enough: run `npm run db:migrate` (or the Compose migration command above) so all migrations, including `008_publish_reconciliation_status.sql`, are applied before restarting the API.
 
 Nginx must forward both the Appsmith/API path and the exact registered callback path `https://mercado.cybertao.space/oauth/callback` to `127.0.0.1:3100`. Keep `MELI_PUBLISH_ENABLED=false` during OAuth and smoke testing.
 

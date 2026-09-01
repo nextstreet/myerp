@@ -153,3 +153,112 @@ test('CBT item inspection accepts an official marketplace child owner', async ()
   assert.equal(result.globalItem.familyId, '99887766');
   assert.equal(result.globalItem.categoryId, 'CBT388338');
 });
+
+test('CBT item inspection resolves a Siteless Family ID from an advertised marketplace child', async () => {
+  const calls = [];
+  const service = new MercadoLibreOAuthService({
+    config: {},
+    pool: { async query() { return { rowCount: 1, rows: [{ meli_user_id: '3385555772' }] }; } },
+    cipher: {},
+    apiClient: {}
+  });
+  service.authenticatedRequest = async (_accountId, path) => {
+    calls.push(path);
+    if (path.startsWith('/marketplace/items/CBT')) return {
+      ok: true, status: 200, payload: {
+        id: 'CBT4218176737', site_id: 'CBT', owner_id: 3385555772,
+        seller_id: 3385555772, category_id: 'CBT388338',
+        family_name: 'Synthetic organizer',
+        site_items: [
+          { site_id: 'MLC', item_id: 'MLC4426912152' },
+          { site_id: 'MCO', item_id: 'MCO4393187474' }
+        ]
+      }
+    };
+    if (path.startsWith('/marketplace/items/MCO4393187474')) return {
+      ok: true, status: 200, payload: {
+        id: 'MCO4393187474', site_id: 'MCO', siteless_family_id: '99887766'
+      }
+    };
+    return { ok: false, status: 404, payload: {} };
+  };
+
+  const result = await service.inspectItem('account-1', 'CBT4218176737');
+
+  assert.ok(calls.includes('/marketplace/items/MCO4393187474?include_attributes=all'));
+  assert.ok(!calls.some((path) => path.startsWith('/marketplace/items/MLC')));
+  assert.equal(result.globalItem.familyId, '99887766');
+  assert.equal(result.globalItem.categoryId, 'CBT388338');
+});
+
+test('item inspection preserves a Family ID exposed directly by a marketplace item', () => {
+  const result = normalizeItemInspection({
+    item: { id: 'MCO4393187474', site_id: 'MCO', siteless_family_id: '99887766' },
+    globalItem: null,
+    description: null,
+    userProduct: null,
+    userProductStatus: 'not_applicable'
+  });
+  assert.equal(result.item.familyId, '99887766');
+});
+
+test('CBT item inspection resolves Family ID through a child User Product detail', async () => {
+  const calls = [];
+  const service = new MercadoLibreOAuthService({
+    config: {},
+    pool: { async query() { return { rowCount: 1, rows: [{ meli_user_id: '3385555772' }] }; } },
+    cipher: {},
+    apiClient: {}
+  });
+  service.authenticatedRequest = async (_accountId, path) => {
+    calls.push(path);
+    if (path.startsWith('/marketplace/items/CBT')) return {
+      ok: true, status: 200, payload: {
+        id: 'CBT4218176737', site_id: 'CBT', owner_id: 3385555772,
+        seller_id: 3385555772, category_id: 'CBT388338',
+        site_items: [{ site_id: 'MCO', item_id: 'MCO4393187474' }]
+      }
+    };
+    if (path.startsWith('/marketplace/items/MCO')) return {
+      ok: true, status: 200, payload: {
+        id: 'MCO4393187474', site_id: 'MCO', user_product_id: 'MCOU123456'
+      }
+    };
+    if (path === '/user-products/MCOU123456') return {
+      ok: true, status: 200, payload: {
+        id: 'MCOU123456', family_id: '99887766', family_name: 'Synthetic organizer'
+      }
+    };
+    return { ok: false, status: 404, payload: {} };
+  };
+
+  const result = await service.inspectItem('account-1', 'CBT4218176737');
+
+  assert.ok(calls.includes('/user-products/MCOU123456'));
+  assert.equal(result.globalItem.familyId, '99887766');
+  assert.equal(result.userProduct.familyId, '99887766');
+  assert.equal(result.lookups.userProduct, 'ok');
+});
+
+test('CBT item inspection accepts site_items represented as a site-keyed object', async () => {
+  const service = new MercadoLibreOAuthService({
+    config: {},
+    pool: { async query() { return { rowCount: 1, rows: [{ meli_user_id: '3385555772' }] }; } },
+    cipher: {}, apiClient: {}
+  });
+  service.authenticatedRequest = async (_accountId, path) => {
+    if (path.startsWith('/marketplace/items/CBT')) return {
+      ok: true, status: 200, payload: {
+        id: 'CBT4218176737', site_id: 'CBT', owner_id: 3385555772, seller_id: 3385555772,
+        site_items: { MLC: 'MLC4426912152', MCO: { item_id: 'MCO4393187474' } }
+      }
+    };
+    if (path.startsWith('/marketplace/items/MCO')) return {
+      ok: true, status: 200, payload: { id: 'MCO4393187474', siteless_family_id: '99887766' }
+    };
+    return { ok: false, status: 404, payload: {} };
+  };
+
+  const result = await service.inspectItem('account-1', 'CBT4218176737');
+  assert.equal(result.globalItem.familyId, '99887766');
+});

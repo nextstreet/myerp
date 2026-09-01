@@ -36,3 +36,35 @@ test('family publish response accepts CBT parent items and site_items', () => {
   assert.equal(result.userProducts[5].sellerSku, 'SKU-5');
   assert.equal(result.userProducts[0].sites.length, 3);
 });
+
+test('mixed batch results are marked as partial acceptance and retain accepted identifiers', () => {
+  const result = normalizeFamilyPublishResult([
+    {
+      item_id: 'CBT-DEMO-1', parent_user_product_id: 'CBTU90001', family_id: 'FAMILY-DEMO',
+      attributes: [{ id: 'SELLER_SKU', value_name: 'SKU-1' }],
+      site_items: [{ site_id: 'MCO', item_id: 'MCO-DEMO-1' }], cause: []
+    },
+    {
+      status: 400, error: 'validation_error',
+      attributes: [{ id: 'SELLER_SKU', value_name: 'SKU-2' }],
+      cause: [{ code: 'body.required_fields' }]
+    }
+  ]);
+
+  assert.equal(result.providerRejected, true);
+  assert.equal(result.providerPartiallyAccepted, true);
+  assert.equal(result.userProducts[0].userProductId, 'U90001');
+  assert.equal(result.userProducts[0].sites[0].itemId, 'MCO-DEMO-1');
+  assert.equal(result.userProducts[1].error, 'validation_error');
+});
+
+test('an empty cause array does not turn a successful result into a rejection', () => {
+  const result = normalizeFamilyPublishResult({
+    family_id: 'FAMILY-DEMO', user_products: [{
+      item_id: 'CBT-DEMO-1', parent_user_product_id: 'CBTU90001', cause: [],
+      attributes: [{ id: 'SELLER_SKU', value_name: 'SKU-1' }]
+    }]
+  });
+  assert.equal(result.providerRejected, undefined);
+  assert.equal(result.familyId, 'FAMILY-DEMO');
+});
