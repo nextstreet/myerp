@@ -226,6 +226,17 @@ async function persistPublishResult(app, family, normalized, rawPayload) {
     && !incompleteIdentifiers.length;
   const publishStatus = complete ? 'published' : 'publish_failed';
 
+  // Normalize an arbitrary value into something PostgreSQL can safely store in a
+  // jsonb column. Mercado Libre error fields (entry.error / site.error) are
+  // sometimes bare strings; writing a raw string to jsonb raises 22P02
+  // (invalid input syntax for type json). Wrap any non-JSON scalar into an
+  // object so partial/incomplete results can always be persisted and reconciled.
+  const jsonb = (value) => {
+    if (value == null) return {};
+    if (typeof value === 'object') return Array.isArray(value) ? value : value;
+    return { message: String(value) };
+  };
+
   await withTransaction(app.db, async (client) => {
     for (const item of normalized.userProducts) {
       const variant = variantsBySku.get(item.sellerSku);
@@ -239,8 +250,8 @@ async function persistPublishResult(app, family, normalized, rawPayload) {
             mercado_payload=$6,publish_status=$7,publish_error=$8
           WHERE listing_id=$1 AND variant_id=$2
         `, [listing.id, variant.id, item.userProductId, item.globalItemId, siteResult?.itemId ?? null,
-          item.raw ?? {}, item.error || siteResult?.error || !siteResult?.itemId ? 'failed' : 'published',
-          item.error ?? siteResult?.error ?? (!siteResult?.itemId ? { code: 'item_id_missing' } : {})]);
+          jsonb(item.raw), item.error || siteResult?.error || !siteResult?.itemId ? 'failed' : 'published',
+          jsonb(item.error ?? siteResult?.error ?? (!siteResult?.itemId ? { code: 'item_id_missing' } : {}))]);
       }
     }
     for (const listing of family.listings) {
