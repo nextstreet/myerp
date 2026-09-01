@@ -1,5 +1,6 @@
 import { buildInternalUpDraft, preflightProductFamily } from '../domain/up-mapper.js';
 import { effectiveMediaForVariants } from '../domain/media-selection.js';
+import { normalizeSelectedSites, scopeFamilyToSites } from '../domain/site-selection.js';
 import { buildGlobalUpFamilyPreview } from '../integrations/mercadolibre/global-up-mapper.js';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -93,6 +94,16 @@ async function loadFamily(db, productId) {
     listings,
     mediaByVariant
   };
+}
+
+function requestedSites(request, family) {
+  const raw = request.body?.sites ?? String(request.query?.sites ?? '').split(',').filter(Boolean);
+  try {
+    return normalizeSelectedSites(raw, family.product.targetSites);
+  } catch (error) {
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 function problem(message, code, statusCode = 400, details) {
@@ -276,7 +287,8 @@ export async function publishRoutes(app) {
   });
 
   app.get('/:productId/preflight', async (request) => {
-    const family = await loadFamily(app.db, request.params.productId);
+    const loaded = await loadFamily(app.db, request.params.productId);
+    const family = scopeFamilyToSites(loaded, requestedSites(request, loaded));
     return preflightProductFamily(family);
   });
 
@@ -286,7 +298,8 @@ export async function publishRoutes(app) {
   });
 
   app.get('/:productId/global-up-preview', async (request) => {
-    const family = await loadFamily(app.db, request.params.productId);
+    const loaded = await loadFamily(app.db, request.params.productId);
+    const family = scopeFamilyToSites(loaded, requestedSites(request, loaded));
     const preflight = preflightProductFamily(family);
     if (!preflight.valid) {
       const error = new Error('Product family failed local preflight');
@@ -312,7 +325,8 @@ export async function publishRoutes(app) {
       error.code = 'validation_error';
       throw error;
     }
-    const family = await loadFamily(app.db, request.params.productId);
+    const loaded = await loadFamily(app.db, request.params.productId);
+    const family = scopeFamilyToSites(loaded, requestedSites(request, loaded));
     const local = preflightProductFamily(family);
     const capabilities = await app.mercadoLibreOAuth.inspectCapabilities(accountId);
     const previewForCategory = local.valid ? buildGlobalUpFamilyPreview(family) : null;
@@ -390,7 +404,8 @@ export async function publishRoutes(app) {
     if (!accountId || requestKey.length < 16 || requestKey.length > 120) {
       throw problem('accountId and a 16-120 character requestKey are required', 'validation_error');
     }
-    const family = await loadFamily(app.db, request.params.productId);
+    const loaded = await loadFamily(app.db, request.params.productId);
+    const family = scopeFamilyToSites(loaded, requestedSites(request, loaded));
     const replayKey = `publish:${requestKey}:${family.listings[0]?.site ?? 'MLM'}`;
     const reconciliation = await app.db.query(`
       SELECT id FROM publish_jobs
