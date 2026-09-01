@@ -649,7 +649,9 @@ function itemInspectionSummary(data) {
     netProceeds: item.netProceeds || null,
     userProductId: item.userProductId || null,
     sitelessUserProductId: globalItem.sitelessUserProductId || userProduct.id || null,
-    familyId: userProduct.familyId || null,
+    parentUserProductId: globalItem.parentUserProductId || null,
+    globalCategoryId: globalItem.categoryId || null,
+    familyId: userProduct.familyId || globalItem.familyId || null,
     familyName: userProduct.familyName || globalItem.familyName || item.familyName || null,
     attributes: item.attributes || [],
     description: data.description?.plainText || null,
@@ -752,7 +754,7 @@ $('navigation').addEventListener('click', (event) => { const target = event.targ
 document.querySelectorAll('[data-go]').forEach((node) => node.addEventListener('click', () => navigate(node.dataset.go)));
 $('refreshProducts').addEventListener('click', loadProducts); $('productStatusFilter').addEventListener('change', loadProducts);
 $('addVariant').addEventListener('click', () => addImportVariant());
-$('fillSixColors').addEventListener('click', () => { $('importVariantsBody').replaceChildren(); [['BLK','Black'],['WHT','White'],['GRY','Gray'],['GRN','Green'],['PNK','Pink'],['CRM','Cream']].forEach(([code,color]) => addImportVariant({ sellerSku:`MESH-4C-${code}`, color, stock:10, purchasePriceCny:12.13, packedWeightG:650 })); });
+$('fillSixColors').addEventListener('click', () => { $('importVariantsBody').replaceChildren(); [['BLK','Black'],['WHT','White'],['GRY','Gray'],['GRN','Green'],['PNK','Pink'],['CRM','Cream']].forEach(([code,color]) => addImportVariant({ sellerSku:`DEMO-${code}`, color, stock:10 })); });
 $('importForm').addEventListener('submit', createProduct); addImportVariant();
 $('aiProductSelect').addEventListener('change', (event) => loadAiWorkspace(event.target.value));
 $('reloadAiWorkspace').addEventListener('click', () => loadAiWorkspace($('aiProductSelect').value));

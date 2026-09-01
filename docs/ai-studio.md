@@ -53,7 +53,7 @@ Expected health fields after configuration:
 
 ```json
 {
-  "version": "0.6.0",
+  "version": "<deployed-package-version>",
   "aiProviderConfigured": true,
   "aiImageGenerationConfigured": true
 }

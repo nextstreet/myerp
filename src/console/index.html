@@ -59,19 +59,19 @@
         <form id="importForm">
           <div class="section-heading"><div><p class="eyebrow">PRODUCT SOURCE</p><h3>产品资料</h3></div><span class="step-chip">步骤 1 / 2</span></div>
           <div class="panel form-grid">
-            <label>内部产品编号<input name="internalCode" required placeholder="例如 MESH-ORGANIZER-001"></label>
+            <label>内部产品编号<input name="internalCode" required placeholder="例如 INTERNAL-PRODUCT-001"></label>
             <label>1688 商品链接<input name="sourceUrl" type="url" placeholder="https://detail.1688.com/..."></label>
             <label class="span-2">原始中文标题<input name="originalTitle" required></label>
-            <label>产品类别提示<input name="categoryHint" placeholder="Desktop organizers"></label>
+            <label>产品类别提示<input name="categoryHint" placeholder="填写通用类目提示"></label>
             <label>采购价（人民币）<input name="purchasePriceCny" type="number" min="0" step="0.0001" required></label>
             <label>包装重量（克）<input name="packedWeightG" type="number" min="1" step="1" required></label>
             <label>产品尺寸<input name="productSize" placeholder="24 × 12 × 12 cm"></label>
             <label>包装尺寸<input name="packageSize" placeholder="长 × 宽 × 高"></label>
-            <label class="span-2">原始参数（JSON）<textarea name="rawAttributes" rows="4" placeholder='{"material":"Iron / Metal Mesh","compartments":4}'></textarea></label>
+            <label class="span-2">原始参数（JSON）<textarea name="rawAttributes" rows="4" placeholder='{"material":"填写材质","featureCount":3}'></textarea></label>
             <label class="span-2">备注<textarea name="notes" rows="3"></textarea></label>
           </div>
 
-          <div class="section-heading"><div><p class="eyebrow">USER PRODUCTS</p><h3>规格列表</h3></div><div><button id="addVariant" type="button" class="button secondary">＋ 添加规格</button> <button id="fillSixColors" type="button" class="button accent">填入六色测试规格</button></div></div>
+          <div class="section-heading"><div><p class="eyebrow">USER PRODUCTS</p><h3>规格列表</h3></div><div><button id="addVariant" type="button" class="button secondary">＋ 添加规格</button> <button id="fillSixColors" type="button" class="button accent">填入六色演示规格</button></div></div>
           <div class="panel table-panel"><table><thead><tr><th>Seller SKU</th><th>颜色</th><th>尺寸</th><th>库存</th><th>单独采购价</th><th>单独重量</th><th></th></tr></thead><tbody id="importVariantsBody"></tbody></table></div>
           <div class="form-footer"><span class="muted">默认目标站点：MLM、MCO、MLC</span><button type="submit" class="button primary">保存产品和全部规格</button></div>
         </form>
@@ -94,7 +94,7 @@
           <div class="fact-grid">
             <article class="panel fact-card">
               <div class="panel-title"><div><h3>手工补充事实</h3><small class="muted">始终优先于AI建议</small></div><button id="saveManualFacts" class="button secondary small">保存</button></div>
-              <textarea id="manualFacts" rows="18" spellcheck="false" placeholder='{"material":"Iron / Metal Mesh","compartments":4}'></textarea>
+              <textarea id="manualFacts" rows="18" spellcheck="false" placeholder='{"material":"填写材质","featureCount":3}'></textarea>
             </article>
             <article class="panel fact-card">
               <div class="panel-title"><div><h3>AI提取建议</h3><small class="muted">仅供审核，不自动应用</small></div><button id="copyAiToConfirmed" class="button accent small">复制到确认区</button></div>
@@ -146,8 +146,8 @@
 
           <div class="section-heading"><div><p class="eyebrow">EXISTING ITEMS</p><h3>现有黑色刊登校准</h3></div><button id="inspectExistingItems" class="button secondary">只读获取</button></div>
           <div class="panel item-inspector">
-            <label>Colombia Item ID<input id="existingItemMCO" type="text" placeholder="例如 MCO4393187474" maxlength="18"></label>
-            <label>Chile Item ID<input id="existingItemMLC" type="text" placeholder="例如 MLC4426912152" maxlength="18"></label>
+            <label>Colombia Item ID<input id="existingItemMCO" type="text" placeholder="例如 MCO1000000000" maxlength="18"></label>
+            <label>Chile Item ID<input id="existingItemMLC" type="text" placeholder="例如 MLC1000000000" maxlength="18"></label>
             <p class="muted span-all">仅读取当前授权账号拥有的明确Item，不列出店铺商品，不修改现有刊登。</p>
           </div>
           <div id="itemInspectionResults" class="result-grid hidden">

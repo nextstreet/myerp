@@ -28,14 +28,14 @@
 - Automatic refresh before expiry plus one refresh-and-retry on HTTP 401.
 - Read-only smoke tests for the account, sites and category discovery on MLM/MCO/MLC.
 - Server-only Mercado Libre client boundary with recursive sensitive-field redaction.
-- Six-color metal mesh organizer seed data and automated tests.
+- Synthetic demonstration seed data and automated multi-variant tests.
 - Live publishing safety switch and explicit confirmation gate.
 - Human-editable product, variant and three-site listing review APIs.
 - Confirmed-field locks: AI-originated updates cannot overwrite approved values.
 - External generated-image registration, media sorting, prompts, preview content and color association.
 - `user_product_seller` capability detection using the connected seller profile.
 - Current category-required/variation attribute lookup for up to ten category IDs.
-- Global UP Family candidate preview preserving all six User Products and all three site sales conditions.
+- Global `/global/items` request-batch preview preserving every selected User Product and independent site sales conditions.
 - Read-only remote preflight with missing attributes/pictures and redacted validation job records.
 - Independent normal/promotional price persistence for every variant on MLM, MCO and MLC.
 - Three-site category prediction through authenticated domain discovery without auto-selecting a category.
@@ -106,7 +106,7 @@ When `APP_API_KEY` is configured, send it as `X-API-Key` for every `/api/*` requ
 | GET | `/api/integrations/mercadolibre/accounts/:id/items/:itemId` | Inspect one owned item plus description and Global UP/Family data |
 | GET | `/api/publish/:productId/preflight` | Validate the family before API conversion |
 | GET | `/api/publish/:productId/draft` | Preview the internal UP draft |
-| GET | `/api/publish/:productId/global-up-preview` | Preview the unsent Global UP Family candidate |
+| GET | `/api/publish/:productId/global-up-preview` | Preview the unsent per-variant `/global/items` request batch |
 | POST | `/api/publish/:productId/remote-preflight` | Read-only account/category preflight; never publishes |
 | GET | `/api/publish/jobs` | Review preflight/publish job summaries and errors |
 | POST | `/api/publish/:productId/live` | Safety-gated placeholder; no live publishing in v0.6.0 |
@@ -164,7 +164,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 
 ## Next implementation milestone
 
-1. Exercise the AI studio with the six-color organizer and a configured server-side provider.
+1. Exercise the AI studio with a product stored only in the deployed ERP and a configured server-side provider.
 2. Approve and associate one white-background image for every color variant.
 3. Confirm real categories and their current mandatory attributes for all three sites.
 4. Validate the final Global UP payload against the connected account's returned metadata.

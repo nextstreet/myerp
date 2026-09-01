@@ -104,6 +104,7 @@ export function normalizeItemInspection({ item, globalItem, description, userPro
     globalItem: globalItem ? {
       id: globalItem.id ?? null,
       categoryId: globalItem.category_id ?? null,
+      familyId: globalItem.family_id ?? null,
       familyName: globalItem.family_name ?? null,
       sitelessUserProductId: globalItem.siteless_user_product_id
         ?? toSitelessUserProductId(globalItem.parent_user_product_id ?? globalItem.user_product_id),
@@ -443,27 +444,25 @@ export class MercadoLibreOAuthService {
       );
     }
     const globalItem = globalItemResponse?.ok ? globalItemResponse.payload : (item.site_id === 'CBT' ? item : null);
+    // The Global Selling user-product resource supports writes, but a detail
+    // GET is not available for every account mode (it returns HTTP 405 for
+    // standard CBT sellers). Family/category facts that are readable are
+    // therefore taken from the owned CBT item instead of probing a write-only
+    // resource.
     const sitelessUserProductId = toSitelessUserProductId(
       globalItem?.siteless_user_product_id
         ?? globalItem?.parent_user_product_id
         ?? globalItem?.user_product_id
         ?? item.user_product_id
     );
-    let userProductResponse = null;
-    if (sitelessUserProductId) {
-      userProductResponse = await this.authenticatedRequest(
-        accountId,
-        `/global/user-products/${encodeURIComponent(sitelessUserProductId)}`
-      );
-    }
 
     return normalizeItemInspection({
       item,
       globalItem,
       description,
-      userProduct: userProductResponse?.ok ? userProductResponse.payload : null,
+      userProduct: null,
       userProductStatus: sitelessUserProductId
-        ? `http_${userProductResponse?.status ?? 'unknown'}`
+        ? 'not_exposed_by_item_read_api'
         : 'not_applicable'
     });
   }

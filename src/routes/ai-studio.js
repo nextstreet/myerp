@@ -364,7 +364,7 @@ export async function aiStudioRoutes(app) {
     const fidelityPrompt = [
       prompt,
       'Use the supplied product as the exact visual source of truth.',
-      'Do not change geometry, proportions, compartment count, material, mesh pattern, dimensions or color.',
+      'Do not change geometry, proportions, structural details, material, surface pattern, dimensions or color.',
       'Do not add a logo, watermark, price, discount or unsupported claim.'
     ].join(' ');
     const start = await beginGeneration(app, {

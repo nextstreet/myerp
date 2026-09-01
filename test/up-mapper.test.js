@@ -5,17 +5,17 @@ import { buildInternalUpDraft, preflightProductFamily } from '../src/domain/up-m
 const colors = ['Black', 'White', 'Gray', 'Green', 'Pink', 'Cream'];
 const product = {
   id: 'product-1',
-  internalCode: 'TEST-MESH-ORGANIZER-001',
-  originalTitle: '六色金属网格桌面收纳盒',
-  familyName: 'Metal Mesh Desktop Organizer - 4 Compartments',
-  purchasePriceCny: 12.13,
-  packedWeightG: 650,
-  rawAttributes: { material: 'Iron / Metal Mesh', compartments: 4 },
+  internalCode: 'DEMO-PRODUCT-001',
+  originalTitle: '非真实业务演示商品',
+  familyName: 'Synthetic Demo Product',
+  purchasePriceCny: 10,
+  packedWeightG: 500,
+  rawAttributes: { material: 'Demo material', featureCount: 3 },
   targetSites: ['MLM', 'MCO', 'MLC']
 };
 const variants = colors.map((color, index) => ({
   id: `variant-${index + 1}`,
-  sellerSku: `MESH-4C-${index + 1}`,
+  sellerSku: `DEMO-${index + 1}`,
   color,
   stock: 10,
   participateInPublish: true

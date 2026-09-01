@@ -14,14 +14,14 @@ try {
         internal_code, original_title, category_hint, purchase_price_cny,
         packed_weight_g, product_dimensions, raw_attributes, target_sites, status
       ) VALUES (
-        'TEST-MESH-ORGANIZER-001', '六色金属网格桌面收纳盒', 'Desktop organizers',
-        12.13, 650, $1, $2, ARRAY['MLM','MCO','MLC']::site_code[], 'pending_review'
+        'DEMO-PRODUCT-001', '非真实业务演示商品', 'Demo category',
+        10.00, 500, $1, $2, ARRAY['MLM','MCO','MLC']::site_code[], 'pending_review'
       )
       ON CONFLICT (internal_code) DO UPDATE SET updated_at = now()
       RETURNING id
     `, [
-      { lengthCm: 24, widthCm: 12, heightCm: 12 },
-      { material: 'Iron / Metal Mesh', compartments: 4, design: 'Open top' }
+      { lengthCm: 20, widthCm: 10, heightCm: 10 },
+      { material: 'Demo material', featureCount: 3 }
     ]);
     const id = product.rows[0].id;
 
@@ -30,15 +30,15 @@ try {
         INSERT INTO variants (
           product_id, seller_sku, color, purchase_price_cny,
           packed_weight_g, stock, participate_in_publish
-        ) VALUES ($1,$2,$3,12.13,650,10,true)
+        ) VALUES ($1,$2,$3,10.00,500,10,true)
         ON CONFLICT (seller_sku) DO UPDATE SET color = EXCLUDED.color
-      `, [id, `MESH-4C-${code}`, color]);
+      `, [id, `DEMO-${code}`, color]);
     }
 
     const listings = [
-      ['MLM', 'Organizador De Escritorio De Malla Metálica 4 Compartimentos', 'MXN'],
-      ['MCO', 'Organizador De Escritorio En Malla Metálica 4 Compartimentos', 'COP'],
-      ['MLC', 'Organizador De Escritorio Malla Metálica 4 Compartimentos', 'CLP']
+      ['MLM', 'Producto De Demostración', 'USD'],
+      ['MCO', 'Producto De Demostración', 'USD'],
+      ['MLC', 'Producto De Demostración', 'USD']
     ];
     for (const [site, title, currency] of listings) {
       await client.query(`
@@ -53,15 +53,15 @@ try {
           family_name = EXCLUDED.family_name
       `, [
         id, site, title,
-        'Open-top metal mesh desktop organizer with four compartments for everyday desk storage.',
-        { material: 'Iron / Metal Mesh', compartments: 4, size: '24 × 12 × 12 cm' },
-        'Metal Mesh Desktop Organizer - 4 Compartments', currency,
+        'Synthetic demonstration listing. Not a real product.',
+        { material: 'Demo material', size: '20 × 10 × 10 cm' },
+        'Synthetic Demo Product', currency,
         { normalPrice: null, note: 'Run the pricing endpoint with current logistics costs and exchange rates.' }
       ]);
     }
     return id;
   });
-  console.log(`Seeded six-color test product: ${productId}`);
+  console.log(`Seeded synthetic demonstration product: ${productId}`);
 } finally {
   await pool.end();
 }

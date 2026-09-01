@@ -31,29 +31,37 @@ function imagesFor(variant, mediaByVariant) {
 export function buildGlobalUpFamilyPreview({ product, variants, listings, mediaByVariant = {} }) {
   const selected = variants.filter((variant) => variant.participateInPublish !== false);
   const familyName = product.familyName ?? product.originalTitle;
+  const globalCategoryId = product.globalCategoryId
+    ?? listings.find((listing) => listing.globalCategoryId)?.globalCategoryId
+    ?? null;
   return {
-    schemaVersion: 'meli-global-up-family-preview/v1',
-    method: 'POST',
-    endpoint: '/global/user-products/families',
+    schemaVersion: 'meli-global-item-batch-preview/v2',
     destructive: false,
     requiresExplicitPublishConfirmation: true,
-    body: selected.map((variant) => ({
-      family_name: familyName,
-      category_id: listings[0]?.categoryId ?? null,
-      attributes: attributesFor(product, variant, listings[0] ?? {}),
-      pictures: imagesFor(variant, mediaByVariant),
-      sites_to_sell: listings.map((listing) => ({
-        site_id: listing.site,
-        logistic_type: 'remote',
-        title: listing.title,
-        currency_id: listing.currency,
-        price: listing.variantPrices?.[variant.id] ?? listing.price,
-        available_quantity: variant.stock ?? 0,
-        attributes: attributesFor(product, variant, listing)
-      }))
+    requests: selected.map((variant) => ({
+      method: 'POST',
+      endpoint: '/global/items',
+      internalVariantId: variant.id,
+      sellerSku: variant.sellerSku,
+      body: {
+        family_name: familyName,
+        category_id: globalCategoryId,
+        currency_id: listings[0]?.currency ?? 'USD',
+        attributes: attributesFor(product, variant, listings[0] ?? {}),
+        pictures: imagesFor(variant, mediaByVariant),
+        sites_to_sell: listings.map((listing) => ({
+          site_id: listing.site,
+          logistic_type: 'remote',
+          title: listing.title,
+          price: listing.variantPrices?.[variant.id] ?? listing.price,
+          available_quantity: variant.stock ?? 0,
+          attributes: attributesFor(product, variant, listing)
+        }))
+      }
     })),
     summary: {
       familyName,
+      globalCategoryId,
       userProductCount: selected.length,
       sites: listings.map((listing) => ({ id: listing.site, name: SITE_NAMES[listing.site] ?? listing.site })),
       sellerSkus: selected.map((variant) => variant.sellerSku)

@@ -77,6 +77,7 @@ async function loadFamily(db, productId) {
     currency: row.currency,
     price: row.pricing_basis?.normalPrice ?? null,
     requiredAttributes: row.required_attributes,
+    globalCategoryId: row.family_data?.globalCategoryId ?? row.family_data?.global_category_id ?? null,
     variantPrices: pricesBySite[row.site] ?? {}
   }));
   return {
@@ -161,7 +162,8 @@ export async function publishRoutes(app) {
     if (!capabilities.userProductSeller) remoteErrors.push({ code: 'user_product_seller_tag_missing' });
     if (!categoryRequirements.ok) remoteErrors.push({ code: 'category_metadata_lookup_failed' });
     if (missingRequiredAttributes.length) remoteErrors.push({ code: 'required_attributes_missing', count: missingRequiredAttributes.length });
-    const missingPublishablePictures = preview?.body.filter((item) => !item.pictures.length).length ?? 0;
+    if (preview && !preview.summary.globalCategoryId) remoteErrors.push({ code: 'global_category_missing' });
+    const missingPublishablePictures = preview?.requests.filter((request) => !request.body.pictures.length).length ?? 0;
     if (missingPublishablePictures) remoteErrors.push({ code: 'picture_upload_pending', count: missingPublishablePictures });
     const response = {
       ok: local.valid && remoteErrors.length === 0,

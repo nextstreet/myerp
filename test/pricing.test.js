@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { calculateSiteQuote, calculateThreeSiteQuotes } from '../src/domain/pricing.js';
 
 const common = {
-  purchasePriceCny: 12.13,
-  packedWeightG: 650,
+  purchasePriceCny: 10,
+  packedWeightG: 500,
   cnyPerUsd: 7.2,
   internationalFreightUsd: 4.5,
   targetProfitUsd: 5,

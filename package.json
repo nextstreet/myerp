@@ -1,6 +1,6 @@
 {
   "name": "mercado-libre-ai-listing-console",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "private": true,
   "type": "module",
   "description": "Lightweight AI-assisted Mercado Libre listing console for Mexico, Colombia and Chile.",
