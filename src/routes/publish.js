@@ -539,15 +539,24 @@ export async function publishRoutes(app) {
     const publishTarget = await resolvePublishTarget(app, accountId, request, family);
     const targetedFamily = { ...family, publishTarget };
     const replayKey = `publish:${requestKey}:${family.listings[0]?.site ?? 'MLM'}`;
-    const reconciliation = await app.db.query(`
-      SELECT id FROM publish_jobs
-      WHERE product_id=$1 AND operation='family_publish'
-        AND response_summary->>'providerAccepted'='true' AND status<>'published'
-      LIMIT 1
-    `, [request.params.productId]);
-    if (reconciliation.rowCount) {
-      throw problem('A previous Mercado Libre request was accepted but its result was not fully reconciled. Do not republish.',
-        'publish_reconciliation_required', 409);
+    // The reconciliation guard prevents republishing a Family that Mercado
+    // Libre already accepted but whose result we could not fully confirm (a
+    // re-POST could create a duplicate Family). It is only meaningful for
+    // create mode: an update (PUT) targets an explicit, already-existing
+    // Siteless Family and is idempotent, so it must not be blocked by an
+    // outstanding un-reconciled create.
+    const isUpdateMode = publishTarget.mode === 'update';
+    if (!isUpdateMode) {
+      const reconciliation = await app.db.query(`
+        SELECT id FROM publish_jobs
+        WHERE product_id=$1 AND operation='family_publish'
+          AND response_summary->>'providerAccepted'='true' AND status<>'published'
+        LIMIT 1
+      `, [request.params.productId]);
+      if (reconciliation.rowCount) {
+        throw problem('A previous Mercado Libre request was accepted but its result was not fully reconciled. Do not republish.',
+          'publish_reconciliation_required', 409);
+      }
     }
     const existing = await app.db.query(`
       SELECT id,response_summary,status,error_code FROM publish_jobs
