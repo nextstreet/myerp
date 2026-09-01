@@ -783,7 +783,9 @@ function publishSelection() {
   if (!sites.length) throw new Error('请至少选择一个发布国家');
   const publishMode = $('familyPublishMode').value;
   const existingItemId = $('existingFamilyItemId').value.trim().toUpperCase();
-  if (publishMode === 'update' && !existingItemId) throw new Error('更新既有 Family 时必须填写原商品 ID');
+  // update 模式支持两种目标：源商品 ID（CBT/MCO/...，触发只读归属解析）或
+  // 直接的 Siteless Family ID（数字）。两者都为空时，后端会回退到该产品
+  // 本地已持久化的 Family ID（若有）。
   return { productId, sites, publishMode, existingItemId,
     key: `${productId}:${sites.join(',')}:${publishMode}:${existingItemId}` };
 }

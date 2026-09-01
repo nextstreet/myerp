@@ -101,6 +101,8 @@ async function loadFamily(db, productId) {
     price: row.pricing_basis?.normalPrice ?? null,
     requiredAttributes: row.required_attributes,
     familyName: row.family_name,
+    mercadoLibreFamilyId: row.mercado_libre_family_id ?? null,
+    mercadoLibreItemId: row.mercado_libre_item_id ?? null,
     familyData: {
       ...(row.family_data ?? {}),
       ...(globalFamilyData.globalAttributes ? { globalAttributes: globalFamilyData.globalAttributes } : {}),
@@ -139,29 +141,77 @@ async function resolvePublishTarget(app, accountId, request, family) {
   const mode = requestedPublishMode(request);
   if (mode === 'create') return { mode };
   const sourceItemId = String(request.body?.existingItemId ?? '').trim().toUpperCase();
-  if (!/^(CBT|MLM|MCO|MLC)\d+$/.test(sourceItemId)) {
-    throw problem('A valid owned CBT or marketplace item ID is required for existing Family mode',
-      'existing_family_source_item_required');
+
+  // The Siteless Family ID is the PUT target. Mercado Libre's item read API
+  // does not expose the user-product/family resource for standard CBT sellers
+  // (it 405s), so globalItem.familyId is often unavailable to reverse-look-up.
+  // Prefer the Family ID we already persisted locally on a successful publish
+  // (listings.mercado_libre_family_id) over the read API.
+  const persistedFamilyIds = [...new Set(family.listings
+    .map((listing) => listing.mercadoLibreFamilyId)
+    .filter((id) => id && String(id).trim()))];
+  let sitelessFamilyId = persistedFamilyIds[0] ? String(persistedFamilyIds[0]).trim() : '';
+  let inspection = null;
+
+  // A bare numeric value is treated as a direct Siteless Family ID rather than
+  // a marketplace item ID, so users can update a Family without needing an
+  // item ID that the read API cannot reverse-map in CBT mode.
+  if (sourceItemId && /^\d+$/.test(sourceItemId)) {
+    sitelessFamilyId = sourceItemId;
+    return {
+      mode,
+      sourceItemId: null,
+      sourceCbtItemId: null,
+      sitelessFamilyId,
+      existingCategoryId: family.listings[0]?.familyData?.globalCategoryId ?? null,
+      existingFamilyName: family.listings.find((listing) => listing.familyName)?.familyName ?? null
+    };
   }
-  const inspection = await app.mercadoLibreOAuth.inspectItem(accountId, sourceItemId);
-  const sitelessFamilyId = String(inspection.globalItem?.familyId ?? '').trim();
+
+  if (sourceItemId) {
+    if (!/^(CBT|MLM|MCO|MLC)\d+$/.test(sourceItemId)) {
+      throw problem('A valid owned CBT or marketplace item ID is required for existing Family mode',
+        'existing_family_source_item_required');
+    }
+    inspection = await app.mercadoLibreOAuth.inspectItem(accountId, sourceItemId);
+    const apiFamilyId = String(inspection.globalItem?.familyId ?? '').trim();
+    if (apiFamilyId) sitelessFamilyId = apiFamilyId;
+    // If the caller gave an item that the account does not own, stop here.
+    if (!sitelessFamilyId) {
+      throw problem('The source item does not expose a Siteless Family ID and no locally persisted Family ID is available for this product',
+        'existing_family_id_unavailable', 422,
+        { sourceItemId, persistedFamilyIds });
+    }
+    const expectedCategoryId = family.listings.find((listing) => listing.globalCategoryId)?.globalCategoryId ?? null;
+    const existingCategoryId = inspection.globalItem?.categoryId ?? null;
+    if (expectedCategoryId && existingCategoryId && expectedCategoryId !== existingCategoryId) {
+      throw problem('The source Family belongs to a different CBT category', 'existing_family_category_mismatch', 422,
+        { sourceItemId, expectedCategoryId, existingCategoryId });
+    }
+    return {
+      mode,
+      sourceItemId,
+      sourceCbtItemId: inspection.globalItem?.id ?? inspection.item?.cbtItemId ?? null,
+      sitelessFamilyId,
+      existingCategoryId,
+      existingFamilyName: inspection.globalItem?.familyName ?? inspection.item?.familyName ?? null
+    };
+  }
+
+  // No source item ID provided: fall back to the locally persisted Family ID
+  // alone. The caller still owns the product, and the Family was created by
+  // this integrating account on a prior publish.
   if (!sitelessFamilyId) {
-    throw problem('The source item does not expose a Siteless Family ID', 'existing_family_id_unavailable', 422,
-      { sourceItemId });
-  }
-  const expectedCategoryId = family.listings.find((listing) => listing.globalCategoryId)?.globalCategoryId ?? null;
-  const existingCategoryId = inspection.globalItem?.categoryId ?? null;
-  if (expectedCategoryId && existingCategoryId && expectedCategoryId !== existingCategoryId) {
-    throw problem('The source Family belongs to a different CBT category', 'existing_family_category_mismatch', 422,
-      { sourceItemId, expectedCategoryId, existingCategoryId });
+    throw problem('An existing Family ID or a source item ID is required for existing Family mode',
+      'existing_family_id_required', 422, { persistedFamilyIds });
   }
   return {
     mode,
-    sourceItemId,
-    sourceCbtItemId: inspection.globalItem?.id ?? inspection.item?.cbtItemId ?? null,
+    sourceItemId: null,
+    sourceCbtItemId: null,
     sitelessFamilyId,
-    existingCategoryId,
-    existingFamilyName: inspection.globalItem?.familyName ?? inspection.item?.familyName ?? null
+    existingCategoryId: family.listings[0]?.familyData?.globalCategoryId ?? null,
+    existingFamilyName: family.listings.find((listing) => listing.familyName)?.familyName ?? null
   };
 }
 
