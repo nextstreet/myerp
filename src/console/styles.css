@@ -94,6 +94,9 @@ label{display:grid;gap:7px;font-size:12px;font-weight:700;color:#4e5964}
 .image-number-chip{display:inline-flex;align-items:center;gap:3px;background:#edf4ff;border:1px solid #c9ddff;border-radius:999px;padding:3px 4px 3px 10px;color:#2459a8;font-weight:700}
 .image-remove{border:0;background:transparent;color:#6d7f96;width:22px;height:22px;border-radius:999px;cursor:pointer;font-size:17px;line-height:1}
 .image-remove:hover{background:#d9e8ff;color:#b42318}
+.publish-site-selector{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:12px 0;padding:14px 18px}
+.publish-site-selector label{display:inline-flex;align-items:center;gap:7px;font-weight:650}
+.publish-site-selector input{width:auto}
 .selectable-media .media-card{position:relative;cursor:pointer}
 .media-check{position:absolute;top:15px;right:15px;width:20px!important;height:20px;z-index:2}
 .fact-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
