@@ -43,6 +43,7 @@
       <section id="page-products" class="page active">
         <div class="toolbar">
           <select id="productStatusFilter"><option value="">全部状态</option><option value="pending_ai">待AI处理</option><option value="pending_review">待审核</option><option value="pending_publish">待发布</option><option value="published">已发布</option><option value="publish_failed">发布失败</option><option value="paused">已暂停</option></select>
+          <input id="productSearch" class="grow" type="search" placeholder="搜索：内部编号 / 标题 / 颜色 / SKU">
           <button id="refreshProducts" class="button secondary">刷新</button>
           <button class="button primary push-right" data-go="import">＋ 新建产品</button>
         </div>
@@ -52,7 +53,7 @@
           <article class="metric"><span>待审核</span><strong id="metricReview">0</strong></article>
           <article class="metric"><span>待发布</span><strong id="metricPublish">0</strong></article>
         </div>
-        <div class="panel table-panel"><table><thead><tr><th>商品</th><th>内部编号</th><th>规格</th><th>目标站点</th><th>采购价</th><th>重量</th><th>状态</th><th>更新时间</th><th></th></tr></thead><tbody id="productsBody"></tbody></table><div id="productsEmpty" class="empty hidden">还没有产品，请先创建或导入。</div></div>
+        <div class="panel table-panel"><table><thead><tr><th>商品</th><th>内部编号</th><th>规格（颜色×站点）</th><th>采购价</th><th>重量</th><th>状态</th><th>更新时间</th><th></th></tr></thead><tbody id="productsBody"></tbody></table><div id="productsEmpty" class="empty hidden">还没有产品，请先创建或导入。</div></div>
       </section>
 
       <section id="page-import" class="page">

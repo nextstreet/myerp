@@ -162,19 +162,64 @@ export async function productsRoutes(app) {
     const status = request.query?.status;
     if (status && !STATUSES.has(status)) throw badRequest('Unsupported status');
     const result = await app.db.query(`
-      SELECT p.*, COUNT(v.id)::integer AS variant_count,
-        (SELECT pm.id FROM product_media pm WHERE pm.product_id=p.id AND pm.media_type='image' ORDER BY pm.sort_order,pm.created_at LIMIT 1) AS thumbnail_media_id
+      SELECT p.*, COUNT(DISTINCT v.id)::integer AS variant_count,
+        (SELECT pm.id FROM product_media pm WHERE pm.product_id=p.id AND pm.media_type='image' ORDER BY pm.sort_order,pm.created_at LIMIT 1) AS thumbnail_media_id,
+        COALESCE(
+          jsonb_agg(DISTINCT jsonb_build_object(
+            'site', l.site,
+            'publishStatus', l.publish_status,
+            'mercadoLibreItemId', l.mercado_libre_item_id,
+            'mercadoLibreFamilyId', l.mercado_libre_family_id
+          )) FILTER (WHERE l.id IS NOT NULL), '[]'::jsonb
+        ) AS site_statuses
       FROM products p
       LEFT JOIN variants v ON v.product_id = p.id
+      LEFT JOIN listings l ON l.product_id = p.id
       WHERE ($1::product_status IS NULL OR p.status = $1)
       GROUP BY p.id
       ORDER BY p.updated_at DESC
       LIMIT $2
     `, [status ?? null, limit]);
-    return result.rows.map((row) => ({
+    const products = result.rows.map((row) => ({
       ...productRow(row),
       variantCount: row.variant_count,
-      thumbnailMediaId: row.thumbnail_media_id ?? null
+      thumbnailMediaId: row.thumbnail_media_id ?? null,
+      siteStatuses: row.site_statuses ?? []
+    }));
+    // Load each product's color/size variants + per-site variant publish status
+    // so the list can show every colour spec and its site state without N+1.
+    const variantRows = await app.db.query(`
+      SELECT v.id AS variant_id, v.product_id, v.seller_sku, v.color, v.size,
+             v.participate_in_publish, v.stock,
+             jsonb_agg(DISTINCT jsonb_build_object(
+               'site', l.site,
+               'publishStatus', lv.publish_status,
+               'itemId', lv.mercado_libre_item_id,
+               'userProductId', lv.mercado_libre_user_product_id
+             )) FILTER (WHERE lv.id IS NOT NULL) AS site_statuses
+      FROM variants v
+      LEFT JOIN listing_variants lv ON lv.variant_id = v.id
+      LEFT JOIN listings l ON l.id = lv.listing_id
+      WHERE v.product_id = ANY($1)
+      GROUP BY v.id
+      ORDER BY v.seller_sku
+    `, [products.map((p) => p.id)]);
+    const variantsByProduct = new Map();
+    for (const v of variantRows.rows) {
+      const list = variantsByProduct.get(v.product_id) ?? [];
+      list.push({
+        sellerSku: v.seller_sku,
+        color: v.color,
+        size: v.size,
+        participateInPublish: v.participate_in_publish,
+        stock: v.stock,
+        siteStatuses: v.site_statuses ?? []
+      });
+      variantsByProduct.set(v.product_id, list);
+    }
+    return products.map((product) => ({
+      ...product,
+      variants: variantsByProduct.get(product.id) ?? []
     }));
   });
 

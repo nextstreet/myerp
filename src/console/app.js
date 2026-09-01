@@ -107,6 +107,7 @@ function navigate(page) {
   if (page === 'publish') preparePublish();
 }
 
+let productSearchTimer = null;
 async function loadProducts() {
   try {
     const filter = $('productStatusFilter').value;
@@ -116,16 +117,67 @@ async function loadProducts() {
   } catch (error) { toast(error.message, true); }
 }
 
+function siteBadge(site, status) {
+  const el = document.createElement('span');
+  el.className = 'site-badge';
+  const ok = status === 'published';
+  const fail = status === 'publish_failed' || status === 'failed';
+  el.classList.toggle('is-ok', ok);
+  el.classList.toggle('is-fail', fail);
+  el.textContent = ok ? `${site}✓` : (fail ? `${site}✗` : site);
+  el.title = `${site}: ${status ?? '未发布'}`;
+  return el;
+}
+
+function renderProductVariants(product) {
+  const cell = document.createElement('td');
+  cell.className = 'spec-cell';
+  const variants = product.variants ?? [];
+  if (!variants.length) { cell.textContent = '—'; return cell; }
+  for (const v of variants) {
+    const chip = document.createElement('div');
+    chip.className = 'spec-chip';
+    if (v.participateInPublish === false) chip.classList.add('is-muted');
+    const name = document.createElement('span');
+    name.className = 'spec-name';
+    name.textContent = [v.sellerSku, v.color, v.size].filter(Boolean).join(' · ');
+    name.title = `${v.sellerSku}${v.color ? ` / ${v.color}` : ''}${v.size ? ` / ${v.size}` : ''}${v.stock ? ` · 库存${v.stock}` : ''}`;
+    chip.append(name);
+    if (v.participateInPublish === false) {
+      const muted = document.createElement('span'); muted.className = 'spec-note'; muted.textContent = '不参与'; chip.append(muted);
+    } else {
+      const sites = v.siteStatuses ?? [];
+      const seen = new Set();
+      for (const s of sites) {
+        const key = s.site;
+        if (seen.has(key)) continue; seen.add(key);
+        chip.append(siteBadge(s.site, s.publishStatus));
+      }
+      if (!sites.length) { const n = document.createElement('span'); n.className = 'spec-note'; n.textContent = '未分配'; chip.append(n); }
+    }
+    cell.append(chip);
+  }
+  return cell;
+}
+
 function renderProducts() {
   const body = $('productsBody');
   body.replaceChildren();
-  $('productsEmpty').classList.toggle('hidden', state.products.length > 0);
+  const q = ($('productSearch')?.value ?? '').trim().toLowerCase();
+  const filtered = q ? state.products.filter((p) => {
+    const hay = [
+      p.internalCode ?? '', p.originalTitle ?? '', p.variantCount || '',
+      ...(p.variants ?? []).flatMap((v) => [v.sellerSku ?? '', v.color ?? '', v.size ?? ''])
+    ].join(' ').toLowerCase();
+    return hay.includes(q);
+  }) : state.products;
+  $('productsEmpty').classList.toggle('hidden', filtered.length > 0);
   $('metricProducts').textContent = state.products.length;
   $('metricVariants').textContent = state.products.reduce((sum, item) => sum + item.variantCount, 0);
   $('metricReview').textContent = state.products.filter((item) => item.status === 'pending_review').length;
   $('metricPublish').textContent = state.products.filter((item) => item.status === 'pending_publish').length;
 
-  for (const product of state.products) {
+  for (const product of filtered) {
     const row = document.createElement('tr');
     const productCell = document.createElement('td');
     const wrap = document.createElement('div');
@@ -140,9 +192,12 @@ function renderProducts() {
     }
     const title = document.createElement('span'); title.textContent = product.originalTitle; wrap.append(title); productCell.append(wrap);
     row.append(productCell);
-    for (const value of [product.internalCode, product.variantCount, product.targetSites.join(' · '), `¥${product.purchasePriceCny}`, `${product.packedWeightG}g`]) {
+    for (const value of [product.internalCode]) {
       const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
     }
+    row.append(renderProductVariants(product));
+    const priceCell = document.createElement('td'); priceCell.textContent = `¥${product.purchasePriceCny}`; row.append(priceCell);
+    const weightCell = document.createElement('td'); weightCell.textContent = `${product.packedWeightG}g`; row.append(weightCell);
     const statusCell = document.createElement('td'); statusCell.append(statusPill(product.status)); row.append(statusCell);
     const updated = document.createElement('td'); updated.textContent = new Date(product.updatedAt).toLocaleString('zh-CN'); row.append(updated);
     const action = document.createElement('td');
@@ -914,6 +969,7 @@ $('logoutButton').addEventListener('click', async () => { await api('/console/ap
 $('navigation').addEventListener('click', (event) => { const target = event.target.closest('[data-page]'); if (target) navigate(target.dataset.page); });
 document.querySelectorAll('[data-go]').forEach((node) => node.addEventListener('click', () => navigate(node.dataset.go)));
 $('refreshProducts').addEventListener('click', loadProducts); $('productStatusFilter').addEventListener('change', loadProducts);
+$('productSearch').addEventListener('input', () => { clearTimeout(productSearchTimer); productSearchTimer = setTimeout(() => renderProducts(), 150); });
 $('addVariant').addEventListener('click', () => addImportVariant());
 $('fillSixColors').addEventListener('click', () => { $('importVariantsBody').replaceChildren(); [['BLK','Black'],['WHT','White'],['GRY','Gray'],['GRN','Green'],['PNK','Pink'],['CRM','Cream']].forEach(([code,color]) => addImportVariant({ sellerSku:`DEMO-${code}`, color, stock:10 })); });
 $('importForm').addEventListener('submit', createProduct); addImportVariant();

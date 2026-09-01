@@ -64,6 +64,15 @@ tr:last-child td{border-bottom:0}
 .status-pill.good{background:#dff6eb;color:#13734a}
 .status-pill.bad{background:#fde5e7;color:#a82734}
 .status-pill.warn{background:#fff0d5;color:#9a5a00}
+.spec-cell{min-width:260px}
+.spec-chip{display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:3px 0}
+.spec-chip + .spec-chip{border-top:1px dashed #e6eaf0;margin-top:2px;padding-top:5px}
+.spec-chip.is-muted{opacity:.55}
+.spec-name{font-size:12px;font-weight:700;color:#2a3540;margin-right:2px}
+.spec-note{font-size:11px;color:var(--muted);font-style:italic}
+.site-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:7px;background:#eef1f5;color:#5a6772;font-size:10px;font-weight:800;letter-spacing:.3px}
+.site-badge.is-ok{background:#e0f5ea;color:#13734a}
+.site-badge.is-fail{background:#fde7e9;color:#b0252f}
 .empty{padding:38px;text-align:center;color:var(--muted)}
 select,input,textarea{width:100%;border:1px solid #d8dde3;border-radius:9px;background:#fff;padding:10px 11px;color:var(--ink);outline:none}
 input[type=checkbox]{width:auto;accent-color:var(--blue)}
