@@ -57,6 +57,14 @@ function showApp() {
   $('appView').classList.remove('hidden');
 }
 
+function updatePublishSafetyBadge(enabled) {
+  const badge = $('publishSafetyBadge');
+  if (!badge) return;
+  badge.textContent = enabled ? '正式发布已开启' : '正式发布已关闭';
+  badge.classList.toggle('bad', !enabled);
+  badge.classList.toggle('good', enabled);
+}
+
 function option(value, label) {
   const node = document.createElement('option');
   node.value = value;
@@ -881,6 +889,7 @@ async function boot() {
   const session = await fetch('/console/api/session', { credentials: 'same-origin' }).then((response) => response.json()).catch(() => ({ configured: false }));
   if (!session.configured) return showLogin('可视化控制台尚未在服务器环境变量中配置。');
   if (!session.authenticated) return showLogin();
+  updatePublishSafetyBadge(Boolean(session.publishEnabled));
   showApp(); await loadProducts();
 }
 

@@ -41,7 +41,7 @@ export async function consoleRoutes(app) {
 
   app.get('/console/api/session', async (request, reply) => {
     if (!app.consoleSession) return reply.code(503).send({ configured: false, authenticated: false });
-    return { configured: true, authenticated: app.consoleSession.verifyRequest(request) };
+    return { configured: true, authenticated: app.consoleSession.verifyRequest(request), publishEnabled: Boolean(app.config?.mercadoLibre?.publishEnabled) };
   });
 
   app.post('/console/api/login', async (request, reply) => {

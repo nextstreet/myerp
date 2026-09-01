@@ -30,6 +30,8 @@ button:disabled{cursor:not-allowed;opacity:.5;transform:none!important;box-shado
 .topbar h2{margin:0;font-size:23px}
 .top-actions{display:flex;gap:10px;align-items:center}
 .safety-badge{padding:8px 12px;border-radius:99px;background:#fff3d6;color:#8a5900;font-size:12px;font-weight:700}
+.safety-badge.good{background:#dff6eb;color:#13734a}
+.safety-badge.bad{background:#fde5e7;color:#a82734}
 .page{display:none;padding:28px 32px 60px;max-width:1600px;margin:auto}
 .page.active{display:block}
 .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:20px}
