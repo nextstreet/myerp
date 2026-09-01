@@ -123,6 +123,21 @@ export async function mediaRoutes(app) {
     return result.rows[0];
   });
 
+  app.delete('/:productId/variants/:variantId/media/:mediaId', async (request, reply) => {
+    const result = await withTransaction(app.db, async (client) => {
+      const valid = await client.query(`
+        SELECT 1 FROM variants v JOIN product_media pm ON pm.product_id=v.product_id
+        WHERE v.id=$1 AND pm.id=$2 AND v.product_id=$3 AND pm.media_type='image'
+      `, [request.params.variantId, request.params.mediaId, request.params.productId]);
+      if (!valid.rowCount) return null;
+      const removed = await client.query('DELETE FROM variant_media WHERE variant_id=$1 AND media_id=$2 RETURNING *',
+        [request.params.variantId, request.params.mediaId]);
+      return removed.rows[0] ?? { variant_id: request.params.variantId, media_id: request.params.mediaId };
+    });
+    if (!result) return reply.code(404).send({ error: 'variant_or_media_not_found' });
+    return result;
+  });
+
   app.patch('/:productId/media/:mediaId', async (request, reply) => {
     const allowedStatuses = new Set(['pending', 'ready', 'rejected']);
     if (request.body?.validationStatus && !allowedStatuses.has(request.body.validationStatus)) {
