@@ -74,6 +74,23 @@ async function loadFamily(db, productId) {
   const targetSites = Array.isArray(product.targetSites)
     ? product.targetSites
     : String(product.targetSites ?? '').replace(/^\{|\}$/g, '').split(',').filter(Boolean);
+  // CBT category data, attributes and sale terms belong to the global Family,
+  // even though the review UI stores them inside a site listing. Preserve the
+  // first non-empty reviewed values across all product listings before the
+  // caller scopes the publish operation to one or more sites.
+  const globalFamilyData = listingResult.rows.reduce((result, row) => {
+    const data = row.family_data ?? {};
+    if (!result.globalCategoryId && (data.globalCategoryId || data.global_category_id)) {
+      result.globalCategoryId = data.globalCategoryId ?? data.global_category_id;
+    }
+    if (!result.globalAttributes && data.globalAttributes && Object.keys(data.globalAttributes).length) {
+      result.globalAttributes = data.globalAttributes;
+    }
+    if (!result.globalSaleTerms && Array.isArray(data.globalSaleTerms) && data.globalSaleTerms.length) {
+      result.globalSaleTerms = data.globalSaleTerms;
+    }
+    return result;
+  }, {});
   const listings = listingResult.rows.filter((row) => targetSites.includes(row.site)).map((row) => ({
     id: row.id,
     site: row.site,
@@ -84,8 +101,12 @@ async function loadFamily(db, productId) {
     price: row.pricing_basis?.normalPrice ?? null,
     requiredAttributes: row.required_attributes,
     familyName: row.family_name,
-    familyData: row.family_data ?? {},
-    globalCategoryId: row.family_data?.globalCategoryId ?? row.family_data?.global_category_id ?? null,
+    familyData: {
+      ...(row.family_data ?? {}),
+      ...(globalFamilyData.globalAttributes ? { globalAttributes: globalFamilyData.globalAttributes } : {}),
+      ...(globalFamilyData.globalSaleTerms ? { globalSaleTerms: globalFamilyData.globalSaleTerms } : {})
+    },
+    globalCategoryId: globalFamilyData.globalCategoryId ?? null,
     variantPrices: pricesBySite[row.site] ?? {}
   }));
   return {

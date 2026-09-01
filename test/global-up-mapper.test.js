@@ -42,3 +42,34 @@ test('Global UP preview keeps six variants and three independent site conditions
   assert.ok(preview.request.body.every((item) => item.attributes.find((attribute) => attribute.id === 'ITEM_CONDITION')?.values?.[0]?.id === '2230284'));
   assert.ok(preview.request.body.every((item) => item.sale_terms[0].id === 'WARRANTY_TYPE'));
 });
+
+test('Global UP preview ignores an empty site sale-terms array', () => {
+  const preview = buildGlobalUpFamilyPreview({
+    product: { originalTitle: 'Synthetic organizer', familyName: 'Synthetic organizer' },
+    variants: [{
+      id: 'v1', sellerSku: 'SKU-WHITE', color: 'White', stock: 10,
+      globalNetProceedsUsd: 6, participateInPublish: true
+    }],
+    listings: [
+      {
+        site: 'MLC', currency: 'USD', globalCategoryId: 'CBT388338',
+        descriptionEnglish: 'Synthetic description.',
+        familyData: { globalSaleTerms: [] }
+      },
+      {
+        site: 'MCO', currency: 'USD', globalCategoryId: 'CBT388338',
+        descriptionEnglish: 'Synthetic description.',
+        familyData: {
+          globalSaleTerms: [{
+            id: 'WARRANTY_TYPE', value_id: '6150835', value_name: 'No warranty'
+          }]
+        }
+      }
+    ],
+    mediaByVariant: { v1: [{ mercadoPictureId: 'PIC-WHITE' }] }
+  });
+
+  assert.deepEqual(preview.request.body[0].sale_terms, [{
+    id: 'WARRANTY_TYPE', value_id: '6150835', value_name: 'No warranty'
+  }]);
+});

@@ -52,7 +52,13 @@ export function buildGlobalUpFamilyPreview({ product, variants, listings, mediaB
   const globalCategoryId = product.globalCategoryId
     ?? listings.find((listing) => listing.globalCategoryId)?.globalCategoryId
     ?? null;
-  const saleTerms = listings.find((listing) => Array.isArray(listing.familyData?.globalSaleTerms))?.familyData?.globalSaleTerms ?? [];
+  // Sale terms are Family-level CBT data. Ignore the empty arrays created for
+  // site listings that have not been reviewed yet; otherwise the first empty
+  // listing suppresses a valid value saved on another selected site.
+  const saleTerms = listings.find((listing) => (
+    Array.isArray(listing.familyData?.globalSaleTerms)
+      && listing.familyData.globalSaleTerms.length > 0
+  ))?.familyData?.globalSaleTerms ?? [];
   return {
     schemaVersion: 'meli-global-up-family-preview/v4',
     destructive: false,
