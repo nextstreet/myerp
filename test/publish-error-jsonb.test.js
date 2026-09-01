@@ -49,6 +49,15 @@ test('string errors and siteProducts arrays serialize to valid JSON for jsonb', 
   assert.deepEqual(JSON.parse(siteProductsStored), siteProducts);
 });
 
+test('listing user_product_data arrays are explicitly serialized for jsonb', () => {
+  const userProductData = [];
+  const databaseParameter = JSON.stringify(userProductData);
+
+  assert.equal(databaseParameter, '[]');
+  assert.deepEqual(JSON.parse(databaseParameter), []);
+  assert.notEqual(databaseParameter, '{}', 'must not become a PostgreSQL array literal');
+});
+
 // Regression: Mercado Libre returns HTTP 200 with a body containing per-element
 // { error, status: 400, cause } validation errors. These must be recognized as
 // a provider rejection, not parsed as identifier-less user products.

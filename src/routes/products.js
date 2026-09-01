@@ -344,7 +344,7 @@ export async function productsRoutes(app) {
     `, [request.params.id, site, merged.values.title || null, merged.values.descriptionEnglish || null,
       merged.values.specificationsEnglish ?? {}, merged.values.categoryId || null,
       merged.values.requiredAttributes ?? {}, merged.values.familyName || null,
-      merged.values.familyData ?? {}, merged.values.userProductData ?? [], merged.values.currency,
+      merged.values.familyData ?? {}, JSON.stringify(merged.values.userProductData ?? []), merged.values.currency,
       merged.values.targetProfitUsd, merged.values.targetMarginRate, merged.values.pricingBasis ?? {}]);
     if (!result.rowCount) return reply.code(404).send({ error: 'product_not_found' });
     return { listing: listingRow(result.rows[0]), ignoredConfirmedFields: merged.ignoredConfirmedFields };
