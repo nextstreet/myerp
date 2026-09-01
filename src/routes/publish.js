@@ -226,15 +226,15 @@ async function persistPublishResult(app, family, normalized, rawPayload) {
     && !incompleteIdentifiers.length;
   const publishStatus = complete ? 'published' : 'publish_failed';
 
-  // Normalize an arbitrary value into something PostgreSQL can safely store in a
-  // jsonb column. Mercado Libre error fields (entry.error / site.error) are
-  // sometimes bare strings; writing a raw string to jsonb raises 22P02
-  // (invalid input syntax for type json). Wrap any non-JSON scalar into an
-  // object so partial/incomplete results can always be persisted and reconciled.
+  // Normalize an arbitrary value into something PostgreSQL can safely store in
+  // a jsonb column, then serialize it explicitly as a JSON string. node-postgres
+  // binds a JS array argument as a PostgreSQL array literal (not JSON), which is
+  // invalid for a jsonb column and raises 22P02; explicit string serialization
+  // sidesteps that ambiguity for objects, arrays and scalars alike.
   const jsonb = (value) => {
-    if (value == null) return {};
-    if (typeof value === 'object') return Array.isArray(value) ? value : value;
-    return { message: String(value) };
+    if (value == null) return '{}';
+    if (typeof value === 'string') return JSON.stringify({ message: value });
+    return JSON.stringify(value);
   };
 
   await withTransaction(app.db, async (client) => {
@@ -256,16 +256,22 @@ async function persistPublishResult(app, family, normalized, rawPayload) {
     }
     for (const listing of family.listings) {
       const siteProducts = normalized.userProducts.map((item) => ({
-        sellerSku: item.sellerSku,
-        userProductId: item.userProductId,
-        globalItemId: item.globalItemId,
-        itemId: item.sites.find((site) => site.site === listing.site)?.itemId ?? null
+        sellerSku: String(item.sellerSku ?? ''),
+        userProductId: item.userProductId == null ? null : String(item.userProductId),
+        globalItemId: item.globalItemId == null ? null : String(item.globalItemId),
+        itemId: item.sites.find((site) => site.site === listing.site)?.itemId == null
+          ? null
+          : String(item.sites.find((site) => site.site === listing.site)?.itemId)
       }));
+      // siteProducts is a JS array; node-postgres binds an array as a PostgreSQL
+      // array literal, which is invalid JSON for the jsonb column and raises 22P02
+      // (invalid input syntax for type json). Serialize it explicitly so the jsonb
+      // column receives a real JSON array.
       await client.query(`
         UPDATE listings SET mercado_libre_family_id=$2,family_data=family_data || $3,user_product_data=$4,
           publish_status=$6,mercado_libre_item_id=COALESCE($5,mercado_libre_item_id)
         WHERE id=$1
-      `, [listing.id, normalized.familyId, { familyId: normalized.familyId }, siteProducts,
+      `, [listing.id, normalized.familyId, JSON.stringify({ familyId: normalized.familyId }), JSON.stringify(siteProducts),
         siteProducts.find((item) => item.itemId)?.itemId ?? null, publishStatus]);
     }
     await client.query('UPDATE products SET status=$2 WHERE id=$1', [family.product.id, publishStatus]);
@@ -506,6 +512,19 @@ export async function publishRoutes(app) {
       .filter((variant) => variant.participateInPublish !== false)
       .map((variant) => variant.sellerSku);
     const normalized = normalizeFamilyPublishResult(response.payload, selectedSellerSkus);
+    if (normalized.providerRejected) {
+      const first = normalized.userProducts[0];
+      const code = first?.error ?? 'meli_family_validation_failed';
+      await app.db.query("UPDATE products SET status='publish_failed' WHERE id=$1", [family.product.id]);
+      await recordPublishJobs(app, family, requestKey, {
+        requestSummary: { endpoint: preview.request.endpoint, variantCount: local.summary.variantCount },
+        responseSummary: { ok: false, providerRejected: true, providerCode: code },
+        httpStatus: response.status, errorCode: String(code).slice(0, 200),
+        errorMessage: JSON.stringify(normalized.userProducts.map((u) => u.raw)).slice(0, 1500), status: 'failed'
+      });
+      throw problem('Mercado Libre rejected the Family during batch validation', 'meli_family_validation_rejected', 422,
+        { providerCode: code, reasons: normalized.userProducts.map((u) => u.raw) });
+    }
     let saved;
     try {
       saved = await persistPublishResult(app, family, normalized, response.payload);
@@ -515,10 +534,11 @@ export async function publishRoutes(app) {
       }
     } catch (error) {
       await app.db.query("UPDATE products SET status='publish_failed' WHERE id=$1", [family.product.id]);
+      const rawBody = JSON.stringify(response?.payload ?? null);
       await recordPublishJobs(app, family, requestKey, {
         requestSummary: { endpoint: preview.request.endpoint, variantCount: local.summary.variantCount },
         responseSummary: { ok: false, partialResponse: true, providerAccepted: true }, httpStatus: response.status,
-        errorCode: error.code ?? 'meli_result_persist_failed', errorMessage: error.message, status: 'failed'
+        errorCode: error.code ?? 'meli_result_persist_failed', errorMessage: `${error.message}\nPAYLOAD: ${rawBody?.slice(0, 3000)}\n${error.stack ?? ''}`.slice(0, 6000), status: 'failed'
       });
       throw error;
     }

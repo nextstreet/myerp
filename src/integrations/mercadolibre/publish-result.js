@@ -18,6 +18,27 @@ function sitelessUserProductId(value) {
 
 export function normalizeFamilyPublishResult(payload, expectedSellerSkus = []) {
   const entries = resultEntries(payload);
+  // Mercado Libre's /global/user-products/families endpoint returns HTTP 200
+  // even when a batch element failed validation; the per-element errors are
+  // embedded in the body as { error, status, cause } objects instead of a
+  // user product. Detect those before treating them as identifier-less UPs.
+  if (entries.length && entries.every((entry) => entry && typeof entry === 'object'
+    && ('error' in entry || 'cause' in entry) && entry.status >= 400)) {
+    return {
+      familyId: payload?.siteless_family_id ?? payload?.family_id ?? payload?.familyId ?? null,
+      providerRejected: true,
+      userProducts: entries.map((entry) => ({
+        sellerSku: valueFor(entry.attributes, 'SELLER_SKU') ?? null,
+        userProductId: null,
+        familyId: null,
+        globalItemId: null,
+        status: String(entry.status ?? ''),
+        error: entry.error ?? entry.message ?? null,
+        sites: [],
+        raw: entry
+      }))
+    };
+  }
   const rootFamilyId = payload?.siteless_family_id ?? payload?.family_id ?? payload?.familyId ?? null;
   const userProducts = entries.map((entry, index) => {
     const sellerSku = entry.seller_sku ?? entry.sellerSku ?? valueFor(entry.attributes, 'SELLER_SKU')
