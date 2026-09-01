@@ -57,7 +57,12 @@ function compactPictures(pictures) {
   }));
 }
 
-export function normalizeItemInspection({ item, description, userProduct, userProductStatus }) {
+export function toSitelessUserProductId(value) {
+  const match = String(value ?? '').toUpperCase().match(/U(\d+)$/);
+  return match ? `U${match[1]}` : null;
+}
+
+export function normalizeItemInspection({ item, globalItem, description, userProduct, userProductStatus }) {
   return {
     item: {
       id: item.id,
@@ -96,6 +101,16 @@ export function normalizeItemInspection({ item, description, userProduct, userPr
       dateCreated: item.date_created ?? null,
       lastUpdated: item.last_updated ?? null
     },
+    globalItem: globalItem ? {
+      id: globalItem.id ?? null,
+      categoryId: globalItem.category_id ?? null,
+      familyName: globalItem.family_name ?? null,
+      sitelessUserProductId: globalItem.siteless_user_product_id
+        ?? toSitelessUserProductId(globalItem.parent_user_product_id ?? globalItem.user_product_id),
+      parentUserProductId: globalItem.parent_user_product_id ?? null,
+      attributes: compactAttributes(globalItem.attributes),
+      pictures: compactPictures(globalItem.pictures)
+    } : null,
     description: description ? {
       plainText: description.plain_text ?? null,
       lastUpdated: description.last_updated ?? null
@@ -419,19 +434,35 @@ export class MercadoLibreOAuthService {
             last_updated: inlineDescription.last_updated ?? null
           }
         : null;
+    let globalItemResponse = null;
+    const cbtItemId = item.cbt_item_id ?? (item.site_id === 'CBT' ? item.id : null);
+    if (cbtItemId && cbtItemId !== item.id) {
+      globalItemResponse = await this.authenticatedRequest(
+        accountId,
+        `/marketplace/items/${encodeURIComponent(cbtItemId)}?include_attributes=all`
+      );
+    }
+    const globalItem = globalItemResponse?.ok ? globalItemResponse.payload : (item.site_id === 'CBT' ? item : null);
+    const sitelessUserProductId = toSitelessUserProductId(
+      globalItem?.siteless_user_product_id
+        ?? globalItem?.parent_user_product_id
+        ?? globalItem?.user_product_id
+        ?? item.user_product_id
+    );
     let userProductResponse = null;
-    if (item.user_product_id) {
+    if (sitelessUserProductId) {
       userProductResponse = await this.authenticatedRequest(
         accountId,
-        `/global/user-products/${encodeURIComponent(item.user_product_id)}`
+        `/global/user-products/${encodeURIComponent(sitelessUserProductId)}`
       );
     }
 
     return normalizeItemInspection({
       item,
+      globalItem,
       description,
       userProduct: userProductResponse?.ok ? userProductResponse.payload : null,
-      userProductStatus: item.user_product_id
+      userProductStatus: sitelessUserProductId
         ? `http_${userProductResponse?.status ?? 'unknown'}`
         : 'not_applicable'
     });
