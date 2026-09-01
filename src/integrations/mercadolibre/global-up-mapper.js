@@ -46,7 +46,7 @@ function imagesFor(variant, mediaByVariant) {
  * adapter. It is never sent by this function. Category metadata and the
  * seller's user_product_seller tag must be checked before any live request.
  */
-export function buildGlobalUpFamilyPreview({ product, variants, listings, mediaByVariant = {} }) {
+export function buildGlobalUpFamilyPreview({ product, variants, listings, mediaByVariant = {}, publishTarget = { mode: 'create' } }) {
   const selected = variants.filter((variant) => variant.participateInPublish !== false);
   const familyName = product.familyName ?? product.originalTitle;
   const globalCategoryId = product.globalCategoryId
@@ -59,13 +59,22 @@ export function buildGlobalUpFamilyPreview({ product, variants, listings, mediaB
     Array.isArray(listing.familyData?.globalSaleTerms)
       && listing.familyData.globalSaleTerms.length > 0
   ))?.familyData?.globalSaleTerms ?? [];
+  const publishMode = publishTarget?.mode === 'update' ? 'update' : 'create';
+  const sitelessFamilyId = String(publishTarget?.sitelessFamilyId ?? '').trim();
+  if (publishMode === 'update' && !sitelessFamilyId) {
+    const error = new Error('A siteless Family ID is required when updating an existing Family');
+    error.code = 'existing_family_id_required';
+    throw error;
+  }
   return {
     schemaVersion: 'meli-global-up-family-preview/v4',
     destructive: false,
     requiresExplicitPublishConfirmation: true,
     request: {
-      method: 'POST',
-      endpoint: '/global/user-products/families',
+      method: publishMode === 'update' ? 'PUT' : 'POST',
+      endpoint: publishMode === 'update'
+        ? `/global/user-products/families/${encodeURIComponent(sitelessFamilyId)}`
+        : '/global/user-products/families',
       body: selected.map((variant) => ({
         family_name: familyName,
         category_id: globalCategoryId,
@@ -87,6 +96,9 @@ export function buildGlobalUpFamilyPreview({ product, variants, listings, mediaB
     summary: {
       familyName,
       globalCategoryId,
+      publishMode,
+      sitelessFamilyId: publishMode === 'update' ? sitelessFamilyId : null,
+      sourceItemId: publishMode === 'update' ? publishTarget.sourceItemId ?? null : null,
       userProductCount: selected.length,
       sites: listings.map((listing) => ({ id: listing.site, name: SITE_NAMES[listing.site] ?? listing.site })),
       sellerSkus: selected.map((variant) => variant.sellerSku)

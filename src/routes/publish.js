@@ -127,6 +127,44 @@ function requestedSites(request, family) {
   }
 }
 
+function requestedPublishMode(request) {
+  const mode = String(request.body?.publishMode ?? 'create').trim().toLowerCase();
+  if (!['create', 'update'].includes(mode)) {
+    throw problem('publishMode must be create or update', 'invalid_publish_mode');
+  }
+  return mode;
+}
+
+async function resolvePublishTarget(app, accountId, request, family) {
+  const mode = requestedPublishMode(request);
+  if (mode === 'create') return { mode };
+  const sourceItemId = String(request.body?.existingItemId ?? '').trim().toUpperCase();
+  if (!/^(CBT|MLM|MCO|MLC)\d+$/.test(sourceItemId)) {
+    throw problem('A valid owned CBT or marketplace item ID is required for existing Family mode',
+      'existing_family_source_item_required');
+  }
+  const inspection = await app.mercadoLibreOAuth.inspectItem(accountId, sourceItemId);
+  const sitelessFamilyId = String(inspection.globalItem?.familyId ?? '').trim();
+  if (!sitelessFamilyId) {
+    throw problem('The source item does not expose a Siteless Family ID', 'existing_family_id_unavailable', 422,
+      { sourceItemId });
+  }
+  const expectedCategoryId = family.listings.find((listing) => listing.globalCategoryId)?.globalCategoryId ?? null;
+  const existingCategoryId = inspection.globalItem?.categoryId ?? null;
+  if (expectedCategoryId && existingCategoryId && expectedCategoryId !== existingCategoryId) {
+    throw problem('The source Family belongs to a different CBT category', 'existing_family_category_mismatch', 422,
+      { sourceItemId, expectedCategoryId, existingCategoryId });
+  }
+  return {
+    mode,
+    sourceItemId,
+    sourceCbtItemId: inspection.globalItem?.id ?? inspection.item?.cbtItemId ?? null,
+    sitelessFamilyId,
+    existingCategoryId,
+    existingFamilyName: inspection.globalItem?.familyName ?? inspection.item?.familyName ?? null
+  };
+}
+
 function problem(message, code, statusCode = 400, details) {
   const error = new Error(message);
   error.code = code;
@@ -365,9 +403,11 @@ export async function publishRoutes(app) {
     }
     const loaded = await loadFamily(app.db, request.params.productId);
     const family = scopeFamilyToSites(loaded, requestedSites(request, loaded));
+    const publishTarget = await resolvePublishTarget(app, accountId, request, family);
+    const targetedFamily = { ...family, publishTarget };
     const local = preflightProductFamily(family);
     const capabilities = await app.mercadoLibreOAuth.inspectCapabilities(accountId);
-    const previewForCategory = local.valid ? buildGlobalUpFamilyPreview(family) : null;
+    const previewForCategory = local.valid ? buildGlobalUpFamilyPreview(targetedFamily) : null;
     const globalCategoryId = family.listings.find((listing) => listing.globalCategoryId)?.globalCategoryId ?? null;
     const categoryIds = [...family.listings.map((listing) => listing.categoryId), globalCategoryId].filter(Boolean);
     const categoryRequirements = await app.mercadoLibreOAuth.categoryRequirements(accountId, categoryIds);
@@ -393,7 +433,8 @@ export async function publishRoutes(app) {
       missingRequiredAttributes,
       missingGlobalAttributes,
       remoteErrors,
-      preview
+      preview,
+      publishTarget
     };
     for (const site of family.product.targetSites) {
       await app.db.query(`
@@ -402,7 +443,8 @@ export async function publishRoutes(app) {
           error_code,error_message,status,completed_at
         ) VALUES ($1,$2,$3,$4,$5,200,$6,$7,$8,now())
       `, [family.product.id, site, `preflight:${randomUUID()}`,
-        { operation: 'read_only_remote_preflight', accountId, variantCount: local.summary.variantCount },
+        { operation: 'read_only_remote_preflight', accountId, variantCount: local.summary.variantCount,
+          publishMode: publishTarget.mode, sitelessFamilyId: publishTarget.sitelessFamilyId ?? null },
         { ok: response.ok, errorCount: remoteErrors.length, missingRequiredAttributeCount: missingRequiredAttributes.length,
           missingGlobalAttributeCount: missingGlobalAttributes.length },
         remoteErrors[0]?.code ?? null, remoteErrors.length ? 'Remote preflight requires corrections' : null,
@@ -444,6 +486,8 @@ export async function publishRoutes(app) {
     }
     const loaded = await loadFamily(app.db, request.params.productId);
     const family = scopeFamilyToSites(loaded, requestedSites(request, loaded));
+    const publishTarget = await resolvePublishTarget(app, accountId, request, family);
+    const targetedFamily = { ...family, publishTarget };
     const replayKey = `publish:${requestKey}:${family.listings[0]?.site ?? 'MLM'}`;
     const reconciliation = await app.db.query(`
       SELECT id FROM publish_jobs
@@ -473,7 +517,7 @@ export async function publishRoutes(app) {
     if (!capabilities.globalSelling || !capabilities.userProductSeller) {
       throw problem('Connected account is not enabled for Global Selling UP publication', 'meli_up_capability_missing', 422, capabilities);
     }
-    const preview = buildGlobalUpFamilyPreview(family);
+    const preview = buildGlobalUpFamilyPreview(targetedFamily);
     if (!preview.summary.globalCategoryId) throw problem('CBT global category is required', 'global_category_missing', 422);
     const requirements = await app.mercadoLibreOAuth.categoryRequirements(accountId, [preview.summary.globalCategoryId]);
     const missingRequiredAttributes = missingRequiredAttributesFor(family, requirements);
@@ -533,6 +577,7 @@ export async function publishRoutes(app) {
       .filter((variant) => variant.participateInPublish !== false)
       .map((variant) => variant.sellerSku);
     const normalized = normalizeFamilyPublishResult(response.payload, selectedSellerSkus);
+    if (!normalized.familyId && publishTarget.mode === 'update') normalized.familyId = publishTarget.sitelessFamilyId;
     if (normalized.providerRejected) {
       const first = normalized.userProducts[0];
       const code = first?.error ?? 'meli_family_validation_failed';

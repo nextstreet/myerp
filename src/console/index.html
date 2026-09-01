@@ -187,6 +187,7 @@
       <section id="page-publish" class="page">
         <div class="toolbar"><select id="publishProductSelect" class="grow"><option value="">选择需要预检的产品</option></select><button id="runLocalPreflight" class="button secondary">本地预检</button><button id="runRemotePreflight" class="button primary">远程只读预检</button></div>
         <div class="panel publish-site-selector"><strong>选择本次发布国家</strong><label><input type="checkbox" name="publishSite" value="MLM"> Mexico · MLM</label><label><input type="checkbox" name="publishSite" value="MCO"> Colombia · MCO</label><label><input type="checkbox" name="publishSite" value="MLC"> Chile · MLC</label><span class="muted">每次预检和正式发布只使用当前勾选站点。</span></div>
+        <div class="panel publish-site-selector"><strong>Family 发布模式</strong><label><select id="familyPublishMode"><option value="create">新建 Family</option><option value="update">更新既有 Family（增量规格）</option></select></label><label class="grow">既有商品 ID<input id="existingFamilyItemId" type="text" autocomplete="off" placeholder="例如 CBT4218176737 或 MCO4393187474"></label><span class="muted">增量模式会只读解析该商品的 Siteless Family ID；缺失或类目不一致时禁止发布。</span></div>
         <div class="safety-callout"><strong>安全边界</strong><span>预检始终只读。图片上传和正式发布是两个独立步骤；正式发布必须输入 PUBLISH，且服务器 MELI_PUBLISH_ENABLED=true 才会执行。</span></div>
         <div id="preflightSummary" class="metric-grid"></div>
         <div class="result-grid">

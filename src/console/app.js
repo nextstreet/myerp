@@ -781,7 +781,11 @@ function publishSelection() {
   if (!productId) throw new Error('请先选择产品');
   const sites = selectedPublishSites();
   if (!sites.length) throw new Error('请至少选择一个发布国家');
-  return { productId, sites, key: `${productId}:${sites.join(',')}` };
+  const publishMode = $('familyPublishMode').value;
+  const existingItemId = $('existingFamilyItemId').value.trim().toUpperCase();
+  if (publishMode === 'update' && !existingItemId) throw new Error('更新既有 Family 时必须填写原商品 ID');
+  return { productId, sites, publishMode, existingItemId,
+    key: `${productId}:${sites.join(',')}:${publishMode}:${existingItemId}` };
 }
 
 function invalidatePublishPreview() {
@@ -825,8 +829,8 @@ async function runLocalPreflight() {
 
 async function runRemotePreflight() {
   try {
-    const { productId, sites } = publishSelection(); const id = await accountId();
-    renderPreflight(await api(`/api/publish/${productId}/remote-preflight`, { method: 'POST', body: JSON.stringify({ accountId: id, sites }) })); await loadJobs();
+    const { productId, sites, publishMode, existingItemId } = publishSelection(); const id = await accountId();
+    renderPreflight(await api(`/api/publish/${productId}/remote-preflight`, { method: 'POST', body: JSON.stringify({ accountId: id, sites, publishMode, existingItemId }) })); await loadJobs();
   } catch (error) { toast(error.message, true); }
 }
 
@@ -847,7 +851,7 @@ async function uploadMeliPictures() {
 async function publishLive() {
   let selection;
   try { selection = publishSelection(); } catch (error) { return toast(error.message, true); }
-  const { productId, sites, key } = selection;
+  const { productId, sites, key, publishMode, existingItemId } = selection;
   if (!state.remotePreflightOk[key]) return toast('请先对当前所选国家完成并通过远程只读预检', true);
   if ($('publishConfirmation').value.trim() !== 'PUBLISH') return toast('请先输入 PUBLISH', true);
   const requestItems = state.preview?.request?.body || [];
@@ -855,14 +859,18 @@ async function publishLive() {
   const targetSites = state.preview?.summary?.sites?.map((site) => site.id).join(' / ') || '—';
   const imageCount = new Set(requestItems.flatMap((item) => item.pictures?.map((picture) => picture.id) || [])).size;
   const proceeds = requestItems.map((item) => item.global_net_proceeds).join(', ');
-  if (!window.confirm(`即将正式创建 Family\n国家：${targetSites}\nUser Product：${requestItems.length} 个\n图片：${imageCount} 张\nglobal_net_proceeds：${proceeds} USD\n\n确认继续？`)) return;
+  const actionText = publishMode === 'update'
+    ? `更新既有 Family ${state.preview?.summary?.sitelessFamilyId || existingItemId}`
+    : '创建新 Family';
+  if (!window.confirm(`即将正式${actionText}\n国家：${targetSites}\nUser Product：${requestItems.length} 个\n图片：${imageCount} 张\nglobal_net_proceeds：${proceeds} USD\n\n确认继续？`)) return;
   try {
     const id = await accountId();
     state.publishRequestKeys ??= {};
     state.publishRequestKeys[key] ??= crypto.randomUUID();
     const result = await api(`/api/publish/${productId}/live`, {
       method: 'POST', body: JSON.stringify({
-        accountId: id, confirmation: 'PUBLISH', requestKey: state.publishRequestKeys[key], sites
+        accountId: id, confirmation: 'PUBLISH', requestKey: state.publishRequestKeys[key], sites,
+        publishMode, existingItemId
       })
     });
     $('publishResult').textContent = JSON.stringify(result, null, 2);
@@ -927,6 +935,7 @@ $('uploadMedia').addEventListener('click', uploadMedia); $('discoverCategories')
 $('inspectExistingItems').addEventListener('click', inspectExistingItems);
 $('calculateQuotes').addEventListener('click', calculateQuotes);
 $('publishProductSelect').addEventListener('change', () => { document.querySelectorAll('input[name="publishSite"]').forEach((input) => { input.checked = false; }); invalidatePublishPreview(); loadJobs(); });
+for (const id of ['familyPublishMode', 'existingFamilyItemId']) $(id).addEventListener('change', invalidatePublishPreview);
 document.querySelectorAll('input[name="publishSite"]').forEach((input) => input.addEventListener('change', invalidatePublishPreview));
 $('runLocalPreflight').addEventListener('click', runLocalPreflight); $('runRemotePreflight').addEventListener('click', runRemotePreflight); $('refreshJobs').addEventListener('click', loadJobs);
 $('uploadMeliPictures').addEventListener('click', uploadMeliPictures); $('publishLive').addEventListener('click', publishLive);

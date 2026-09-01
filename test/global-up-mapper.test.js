@@ -73,3 +73,27 @@ test('Global UP preview ignores an empty site sale-terms array', () => {
     id: 'WARRANTY_TYPE', value_id: '6150835', value_name: 'No warranty'
   }]);
 });
+
+test('existing Family preview targets the Siteless Family with PUT', () => {
+  const preview = buildGlobalUpFamilyPreview({
+    product: { originalTitle: 'Synthetic organizer', familyName: 'Synthetic organizer' },
+    variants: [{ id: 'v1', sellerSku: 'SKU-WHITE', color: 'White', stock: 10,
+      globalNetProceedsUsd: 6, participateInPublish: true }],
+    listings: [{ site: 'MCO', currency: 'USD', globalCategoryId: 'CBT388338',
+      descriptionEnglish: 'Synthetic description.', familyData: {} }],
+    mediaByVariant: { v1: [{ mercadoPictureId: 'PIC-WHITE' }] },
+    publishTarget: { mode: 'update', sitelessFamilyId: '123456789', sourceItemId: 'CBT123' }
+  });
+
+  assert.equal(preview.request.method, 'PUT');
+  assert.equal(preview.request.endpoint, '/global/user-products/families/123456789');
+  assert.equal(preview.summary.publishMode, 'update');
+  assert.equal(preview.summary.sitelessFamilyId, '123456789');
+});
+
+test('existing Family preview refuses to fall back to creating a Family', () => {
+  assert.throws(() => buildGlobalUpFamilyPreview({
+    product: { originalTitle: 'Synthetic organizer' }, variants: [], listings: [],
+    publishTarget: { mode: 'update' }
+  }), { code: 'existing_family_id_required' });
+});
