@@ -54,7 +54,7 @@ The internal UP draft intentionally does not pretend to be the final Mercado Lib
 - `confirmed_fields` is a per-entity JSON map used to prevent AI regeneration from overwriting approved content.
 - `seller_accounts.capabilities` caches the CBT site check and the official `user_product_seller` tag result.
 - Category requirements are always read from Mercado Libre at preflight time; required enumerations are not hard-coded.
-- `/global/user-products/families` output is a review candidate only. It is not transmitted until picture handling, returned account metadata and the user's second confirmation have all passed.
+- The per-variant `/global/items` request batch is a review candidate only. It is not transmitted until picture handling, the CBT category, returned account metadata and the user's second confirmation have all passed.
 - Each remote preflight creates redacted `publish_jobs` summaries for MLM, MCO and MLC so failures remain auditable.
 
 ## v0.4 listing-readiness boundary

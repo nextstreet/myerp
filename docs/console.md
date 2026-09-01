@@ -52,7 +52,7 @@ docker compose up -d api
 curl -s http://127.0.0.1:3100/health
 ```
 
-The response should contain `version: "0.6.0"` and `consoleConfigured: true`.
+The response should contain the deployed package `version` and `consoleConfigured: true`.
 
 Open `https://mercado.cybertao.space/console` and enter the management password. Five failed login attempts from one IP within 15 minutes are throttled.
 

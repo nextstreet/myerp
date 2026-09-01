@@ -11,24 +11,24 @@ import { parseJsonOutput } from '../src/integrations/ai/provider.js';
 
 test('effective facts keep confirmed and manual values above AI suggestions', () => {
   const facts = effectiveFacts({
-    baseFacts: { material: 'Metal', dimensions: { width: 24, height: 12 } },
-    aiSuggestions: { material: 'Plastic', dimensions: { width: 25, depth: 12 }, compartments: 4 },
-    manualFacts: { material: 'Iron', dimensions: { width: 24 } },
-    confirmedFacts: { material: 'Iron / Metal Mesh', dimensions: { height: 12 } }
+    baseFacts: { material: 'Demo A', dimensions: { width: 20, height: 10 } },
+    aiSuggestions: { material: 'Demo B', dimensions: { width: 21, depth: 8 }, featureCount: 3 },
+    manualFacts: { material: 'Demo C', dimensions: { width: 20 } },
+    confirmedFacts: { material: 'Confirmed demo material', dimensions: { height: 10 } }
   });
-  assert.equal(facts.material, 'Iron / Metal Mesh');
-  assert.deepEqual(facts.dimensions, { width: 24, depth: 12, height: 12 });
-  assert.equal(facts.compartments, 4);
+  assert.equal(facts.material, 'Confirmed demo material');
+  assert.deepEqual(facts.dimensions, { width: 20, depth: 8, height: 10 });
+  assert.equal(facts.featureCount, 3);
 });
 
 test('generation facts exclude unconfirmed AI suggestions', () => {
   const facts = generationFacts({
-    baseFacts: { productType: 'Organizer' },
-    manualFacts: { material: 'Iron' },
-    confirmedFacts: { compartments: 4 },
+    baseFacts: { productType: 'Demo product' },
+    manualFacts: { material: 'Demo material' },
+    confirmedFacts: { featureCount: 3 },
     aiSuggestions: { certification: 'Unverified', material: 'Plastic' }
   });
-  assert.deepEqual(facts, { productType: 'Organizer', material: 'Iron', compartments: 4 });
+  assert.deepEqual(facts, { productType: 'Demo product', material: 'Demo material', featureCount: 3 });
 });
 
 test('AI JSON parser accepts plain and fenced JSON only', () => {
@@ -46,14 +46,14 @@ test('fact extraction normalizes optional sections', () => {
 
 test('listing drafts require every selected site title', () => {
   const result = validateListingDrafts({
-    familyName: 'Metal Mesh Organizer',
+    familyName: 'Synthetic Demo Product',
     listings: {
-      MLM: { title: 'Organizador de Escritorio de Malla Metálica', specificationsEnglish: { Material: 'Iron' } },
-      MCO: { title: 'Organizador Metálico para Escritorio' },
-      MLC: { title: 'Organizador de Escritorio Metálico' }
+      MLM: { title: 'Producto De Demostración', specificationsEnglish: { Material: 'Demo' } },
+      MCO: { title: 'Producto De Demostración' },
+      MLC: { title: 'Producto De Demostración' }
     }
   });
-  assert.equal(result.listings.MLM.specificationsEnglish.Material, 'Iron');
+  assert.equal(result.listings.MLM.specificationsEnglish.Material, 'Demo');
   assert.throws(() => validateListingDrafts({ listings: { MLM: { title: 'Only one' } } }), { code: 'ai_output_invalid' });
 });
 

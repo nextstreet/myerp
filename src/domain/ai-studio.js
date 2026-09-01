@@ -189,7 +189,7 @@ export function imagePlanPrompt({ facts }) {
 export function whiteBackgroundPrompt(facts) {
   return [
     'Create a marketplace-ready pure white background product image from the supplied reference.',
-    'Preserve the exact product geometry, proportions, compartment count, mesh pattern, material appearance and color.',
+    'Preserve the exact product geometry, proportions, structural details, surface pattern, material appearance and color.',
     'Remove only the original background and unrelated objects. Use a subtle realistic contact shadow.',
     'Do not add text, logo, border, watermark, accessories or new product features.',
     `Confirmed facts: ${JSON.stringify(facts)}`
