@@ -764,6 +764,24 @@ async function preparePublish() {
   if ($('publishProductSelect').value) await loadJobs();
 }
 
+function selectedPublishSites() {
+  return [...document.querySelectorAll('input[name="publishSite"]:checked')].map((input) => input.value);
+}
+
+function publishSelection() {
+  const productId = $('publishProductSelect').value;
+  if (!productId) throw new Error('请先选择产品');
+  const sites = selectedPublishSites();
+  if (!sites.length) throw new Error('请至少选择一个发布国家');
+  return { productId, sites, key: `${productId}:${sites.join(',')}` };
+}
+
+function invalidatePublishPreview() {
+  state.preview = {}; $('payloadPreview').textContent = '{}';
+  $('preflightBadge').textContent = '尚未运行'; $('preflightBadge').className = 'status-pill';
+  $('preflightIssues').textContent = '站点选择已变化，请重新运行预检。';
+}
+
 function renderPreflight(data) {
   const local = data.local || data; const summary = local.summary || {};
   const proceeds = summary.globalNetProceedsUsd || [];
@@ -785,18 +803,23 @@ function renderPreflight(data) {
   if (!issues.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '没有发现阻塞项。'; container.append(empty); }
   issues.forEach((item) => { const node = document.createElement('div'); node.className = `issue${item.warning ? ' warning' : ''}`; node.textContent = `${item.code}${item.site ? ` · ${item.site}` : ''}${item.sellerSku ? ` · ${item.sellerSku}` : ''}${item.attributeId ? ` · ${item.attributeId}` : ''}`; container.append(node); });
   state.preview = data.preview || {}; $('payloadPreview').textContent = JSON.stringify(state.preview, null, 2);
-  if (data.readOnly === true) state.remotePreflightOk[$('publishProductSelect').value] = Boolean(data.ok);
+  if (data.readOnly === true) {
+    try { state.remotePreflightOk[publishSelection().key] = Boolean(data.ok); } catch {}
+  }
 }
 
 async function runLocalPreflight() {
-  const productId = $('publishProductSelect').value; if (!productId) return toast('请先选择产品', true);
-  state.remotePreflightOk[productId] = false;
-  try { renderPreflight(await api(`/api/publish/${productId}/preflight`)); await loadJobs(); } catch (error) { toast(error.message, true); }
+  try {
+    const { productId, sites, key } = publishSelection(); state.remotePreflightOk[key] = false;
+    renderPreflight(await api(`/api/publish/${productId}/preflight?sites=${encodeURIComponent(sites.join(','))}`)); await loadJobs();
+  } catch (error) { toast(error.message, true); }
 }
 
 async function runRemotePreflight() {
-  const productId = $('publishProductSelect').value; if (!productId) return toast('请先选择产品', true);
-  try { const id = await accountId(); renderPreflight(await api(`/api/publish/${productId}/remote-preflight`, { method: 'POST', body: JSON.stringify({ accountId: id }) })); await loadJobs(); } catch (error) { toast(error.message, true); }
+  try {
+    const { productId, sites } = publishSelection(); const id = await accountId();
+    renderPreflight(await api(`/api/publish/${productId}/remote-preflight`, { method: 'POST', body: JSON.stringify({ accountId: id, sites }) })); await loadJobs();
+  } catch (error) { toast(error.message, true); }
 }
 
 async function uploadMeliPictures() {
@@ -814,8 +837,10 @@ async function uploadMeliPictures() {
 }
 
 async function publishLive() {
-  const productId = $('publishProductSelect').value; if (!productId) return toast('请先选择产品', true);
-  if (!state.remotePreflightOk[productId]) return toast('请先完成并通过远程只读预检', true);
+  let selection;
+  try { selection = publishSelection(); } catch (error) { return toast(error.message, true); }
+  const { productId, sites, key } = selection;
+  if (!state.remotePreflightOk[key]) return toast('请先对当前所选国家完成并通过远程只读预检', true);
   if ($('publishConfirmation').value.trim() !== 'PUBLISH') return toast('请先输入 PUBLISH', true);
   const requestItems = state.preview?.request?.body || [];
   if (!requestItems.length) return toast('远程预检预览已失效，请重新运行远程预检', true);
@@ -826,10 +851,10 @@ async function publishLive() {
   try {
     const id = await accountId();
     state.publishRequestKeys ??= {};
-    state.publishRequestKeys[productId] ??= crypto.randomUUID();
+    state.publishRequestKeys[key] ??= crypto.randomUUID();
     const result = await api(`/api/publish/${productId}/live`, {
       method: 'POST', body: JSON.stringify({
-        accountId: id, confirmation: 'PUBLISH', requestKey: state.publishRequestKeys[productId]
+        accountId: id, confirmation: 'PUBLISH', requestKey: state.publishRequestKeys[key], sites
       })
     });
     $('publishResult').textContent = JSON.stringify(result, null, 2);
@@ -838,7 +863,7 @@ async function publishLive() {
     await loadProducts(); await loadJobs();
   } catch (error) {
     if (state.publishRequestKeys && !['meli_transport_error', 'publish_reconciliation_required'].includes(error.code)) {
-      delete state.publishRequestKeys[productId];
+      delete state.publishRequestKeys[key];
     }
     toast(error.message, true); await loadJobs();
   }
@@ -892,7 +917,9 @@ $('reviewProductSelect').addEventListener('change', (event) => loadReview(event.
 $('uploadMedia').addEventListener('click', uploadMedia); $('discoverCategories').addEventListener('click', discoverCategories); $('markPendingPublish').addEventListener('click', markPendingPublish);
 $('inspectExistingItems').addEventListener('click', inspectExistingItems);
 $('calculateQuotes').addEventListener('click', calculateQuotes);
-$('publishProductSelect').addEventListener('change', loadJobs); $('runLocalPreflight').addEventListener('click', runLocalPreflight); $('runRemotePreflight').addEventListener('click', runRemotePreflight); $('refreshJobs').addEventListener('click', loadJobs);
+$('publishProductSelect').addEventListener('change', () => { document.querySelectorAll('input[name="publishSite"]').forEach((input) => { input.checked = false; }); invalidatePublishPreview(); loadJobs(); });
+document.querySelectorAll('input[name="publishSite"]').forEach((input) => input.addEventListener('change', invalidatePublishPreview));
+$('runLocalPreflight').addEventListener('click', runLocalPreflight); $('runRemotePreflight').addEventListener('click', runRemotePreflight); $('refreshJobs').addEventListener('click', loadJobs);
 $('uploadMeliPictures').addEventListener('click', uploadMeliPictures); $('publishLive').addEventListener('click', publishLive);
 $('copyPreview').addEventListener('click', async () => { await navigator.clipboard.writeText(JSON.stringify(state.preview, null, 2)); toast('JSON 已复制'); });
 boot().catch((error) => showLogin(error.message));

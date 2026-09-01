@@ -62,7 +62,7 @@ Open `https://mercado.cybertao.space/console` and enter the management password.
 2. **Import** — create the source product and all variants in one transaction; the six-color helper creates six distinct Seller SKUs.
 3. **AI content** — optionally analyze selected images, confirm product facts, create editable three-site copy and generate pending-review image drafts.
 4. **Review** — edit variants, upload images, use the numbered gallery and per-variant number map to add/remove images, assign one primary image per color, discover site categories, save English/Spanish content and calculate/store independent site prices. Removing a number only removes that image from the selected variant; it does not delete the stored image or its Mercado Libre picture ID.
-5. **Publish preflight** — run local and authenticated read-only preflight, inspect the exact Global UP Family request, upload reviewed images, and view redacted job/result logs.
+5. **Publish preflight** — explicitly select one or more of MLM/MCO/MLC, run local and authenticated read-only preflight for only those sites, inspect the exact Global UP Family request, upload reviewed images, and view redacted job/result logs. Changing the site selection invalidates the prior preflight result.
 
 ## Supervised publication
 
