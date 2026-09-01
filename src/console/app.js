@@ -632,6 +632,7 @@ async function accountId() {
 
 function itemInspectionSummary(data) {
   const item = data.item || {};
+  const globalItem = data.globalItem || {};
   const userProduct = data.userProduct || {};
   const sellerSkuAttribute = (item.attributes || []).find((attribute) => attribute.id === 'SELLER_SKU');
   return {
@@ -647,8 +648,9 @@ function itemInspectionSummary(data) {
     sellerSku: item.sellerCustomField || sellerSkuAttribute?.valueName || null,
     netProceeds: item.netProceeds || null,
     userProductId: item.userProductId || null,
+    sitelessUserProductId: globalItem.sitelessUserProductId || userProduct.id || null,
     familyId: userProduct.familyId || null,
-    familyName: userProduct.familyName || item.familyName || null,
+    familyName: userProduct.familyName || globalItem.familyName || item.familyName || null,
     attributes: item.attributes || [],
     description: data.description?.plainText || null,
     pictures: item.pictures || [],
