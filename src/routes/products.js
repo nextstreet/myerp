@@ -13,14 +13,14 @@ const PRODUCT_REVIEW_FIELDS = [
 ];
 const VARIANT_REVIEW_FIELDS = [
   'sellerSku', 'color', 'size', 'otherAttributes', 'purchasePriceCny',
-  'packedWeightG', 'stock', 'participateInPublish'
+  'packedWeightG', 'stock', 'globalNetProceedsUsd', 'participateInPublish'
 ];
 const LISTING_REVIEW_FIELDS = [
   'title', 'descriptionEnglish', 'specificationsEnglish', 'categoryId',
   'requiredAttributes', 'familyName', 'familyData', 'userProductData',
   'currency', 'targetProfitUsd', 'targetMarginRate', 'pricingBasis'
 ];
-const SITE_CURRENCIES = Object.freeze({ MLM: 'MXN', MCO: 'COP', MLC: 'CLP' });
+const SITE_CURRENCIES = Object.freeze({ MLM: 'USD', MCO: 'USD', MLC: 'USD' });
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function badRequest(message, details) {
@@ -81,6 +81,7 @@ function variantRow(row) {
     purchasePriceCny: row.purchase_price_cny === null ? null : Number(row.purchase_price_cny),
     packedWeightG: row.packed_weight_g,
     stock: row.stock,
+    globalNetProceedsUsd: row.global_net_proceeds_usd === null ? null : Number(row.global_net_proceeds_usd),
     participateInPublish: row.participate_in_publish,
     confirmedFields: row.confirmed_fields,
     createdAt: row.created_at,
@@ -107,6 +108,7 @@ function listingRow(row) {
     pricingBasis: row.pricing_basis,
     publishStatus: row.publish_status,
     mercadoLibreItemId: row.mercado_libre_item_id,
+    mercadoLibreFamilyId: row.mercado_libre_family_id,
     confirmedFields: row.confirmed_fields ?? {},
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -123,6 +125,10 @@ function listingVariantRow(row) {
     currency: row.currency,
     pricingBasis: row.pricing_basis ?? {},
     mercadoLibreUserProductId: row.mercado_libre_user_product_id,
+    mercadoLibreGlobalItemId: row.mercado_libre_global_item_id,
+    mercadoLibreItemId: row.mercado_libre_item_id,
+    publishStatus: row.publish_status,
+    publishError: row.publish_error ?? {},
     mercadoPayload: row.mercado_payload ?? {}
   };
 }
@@ -138,6 +144,10 @@ function validateReviewValues(values, type) {
   if (type === 'variant') {
     if (!String(values.sellerSku ?? '').trim()) errors.push('sellerSku is required');
     if (!Number.isInteger(Number(values.stock)) || Number(values.stock) < 0) errors.push('stock must be a non-negative integer');
+    if (values.globalNetProceedsUsd !== null && values.globalNetProceedsUsd !== undefined
+      && (!Number.isFinite(Number(values.globalNetProceedsUsd)) || Number(values.globalNetProceedsUsd) <= 0)) {
+      errors.push('globalNetProceedsUsd must be positive when provided');
+    }
   }
   if (type === 'listing') {
     if (!SITE_CODES.has(values.site)) errors.push('unsupported site');
@@ -219,12 +229,12 @@ export async function productsRoutes(app) {
         await client.query(`
           INSERT INTO variants (
             product_id, seller_sku, color, size, other_attributes,
-            purchase_price_cny, packed_weight_g, stock, participate_in_publish
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            purchase_price_cny, packed_weight_g, stock, global_net_proceeds_usd, participate_in_publish
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         `, [
           productId, variant.sellerSku.trim(), variant.color ?? null, variant.size ?? null,
           variant.otherAttributes ?? {}, variant.purchasePriceCny ?? null,
-          variant.packedWeightG ?? null, variant.stock ?? 0,
+          variant.packedWeightG ?? null, variant.stock ?? 0, variant.globalNetProceedsUsd ?? null,
           variant.participateInPublish !== false
         ]);
       }
@@ -266,17 +276,19 @@ export async function productsRoutes(app) {
       purchasePriceCny: request.body?.purchasePriceCny ?? null,
       packedWeightG: request.body?.packedWeightG ?? null,
       stock: request.body?.stock ?? 0,
+      globalNetProceedsUsd: request.body?.globalNetProceedsUsd ?? null,
       participateInPublish: request.body?.participateInPublish !== false
     };
     validateReviewValues(values, 'variant');
     const result = await app.db.query(`
       INSERT INTO variants (
         product_id, seller_sku, color, size, other_attributes, purchase_price_cny,
-        packed_weight_g, stock, participate_in_publish
-      ) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9 WHERE EXISTS (SELECT 1 FROM products WHERE id=$1)
+        packed_weight_g, stock, global_net_proceeds_usd, participate_in_publish
+      ) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10 WHERE EXISTS (SELECT 1 FROM products WHERE id=$1)
       RETURNING *
     `, [request.params.id, values.sellerSku.trim(), values.color, values.size, values.otherAttributes,
-      values.purchasePriceCny, values.packedWeightG, Number(values.stock), values.participateInPublish]);
+      values.purchasePriceCny, values.packedWeightG, Number(values.stock), values.globalNetProceedsUsd,
+      values.participateInPublish]);
     if (!result.rowCount) return reply.code(404).send({ error: 'product_not_found' });
     reply.code(201);
     return variantRow(result.rows[0]);
@@ -291,11 +303,13 @@ export async function productsRoutes(app) {
     validateReviewValues(merged.values, 'variant');
     const result = await app.db.query(`
       UPDATE variants SET seller_sku=$3,color=$4,size=$5,other_attributes=$6,
-        purchase_price_cny=$7,packed_weight_g=$8,stock=$9,participate_in_publish=$10
+        purchase_price_cny=$7,packed_weight_g=$8,stock=$9,global_net_proceeds_usd=$10,
+        participate_in_publish=$11
       WHERE id=$1 AND product_id=$2 RETURNING *
     `, [request.params.variantId, request.params.id, merged.values.sellerSku.trim(), merged.values.color,
       merged.values.size, merged.values.otherAttributes ?? {}, merged.values.purchasePriceCny,
-      merged.values.packedWeightG, Number(merged.values.stock), merged.values.participateInPublish]);
+      merged.values.packedWeightG, Number(merged.values.stock), merged.values.globalNetProceedsUsd,
+      merged.values.participateInPublish]);
     return { variant: variantRow(result.rows[0]), ignoredConfirmedFields: merged.ignoredConfirmedFields };
   });
 

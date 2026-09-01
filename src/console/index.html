@@ -138,7 +138,7 @@
         <div id="reviewContent" class="hidden">
           <div class="review-hero panel"><div><p class="eyebrow">PRODUCT FAMILY</p><h3 id="reviewProductName"></h3><p id="reviewProductMeta" class="muted"></p></div><span id="reviewProductStatus" class="status-pill"></span></div>
           <div class="section-heading"><div><p class="eyebrow">VARIANTS</p><h3>规格与库存</h3></div><span id="reviewVariantCount" class="step-chip"></span></div>
-          <div class="panel table-panel"><table><thead><tr><th>Seller SKU</th><th>颜色</th><th>尺寸</th><th>库存</th><th>参与发布</th><th>主图</th><th></th></tr></thead><tbody id="reviewVariantsBody"></tbody></table></div>
+          <div class="panel table-panel"><table><thead><tr><th>Seller SKU</th><th>颜色</th><th>尺寸</th><th>库存</th><th>global_net_proceeds USD</th><th>参与发布</th><th>主图</th><th></th></tr></thead><tbody id="reviewVariantsBody"></tbody></table><p class="muted table-note">global_net_proceeds 是该 User Product 希望获得的平台净收益金额，不等于三国前台售价；每个规格必须人工确认。</p></div>
 
           <div class="section-heading"><div><p class="eyebrow">MEDIA</p><h3>图片上传与颜色关联</h3></div></div>
           <div class="panel media-toolbar"><input id="mediaFile" type="file" accept="image/*" multiple><select id="mediaRole"><option value="original">原图</option><option value="white_background">白底图</option><option value="dimension">尺寸图</option><option value="feature">功能图</option><option value="scene">场景图</option></select><button id="uploadMedia" class="button secondary">批量上传图片</button></div>
@@ -155,7 +155,7 @@
             <article class="panel"><div class="panel-title"><h3>Chile</h3><span id="itemInspectionBadgeMLC" class="status-pill">尚未读取</span></div><pre id="itemInspectionMLC">{}</pre></article>
           </div>
 
-          <div class="section-heading"><div><p class="eyebrow">COUNTRY LISTINGS</p><h3>三国刊登资料与报价</h3></div><button id="discoverCategories" class="button accent">查询三国类目建议</button></div>
+          <div class="section-heading"><div><p class="eyebrow">COUNTRY LISTINGS</p><h3>三国文案与报价校准</h3><p class="muted">三国售价用于人工测算和后续站点校准；Family 创建接口使用每个 UP 的 global_net_proceeds。</p></div><button id="discoverCategories" class="button accent">查询三国类目建议</button></div>
           <div id="categorySuggestions" class="suggestions hidden"></div>
           <div class="panel quote-panel">
             <div class="panel-title"><div><p class="eyebrow">TRANSPARENT PRICING</p><h3>三国报价计算器</h3></div><button id="calculateQuotes" class="button accent">计算并填入三国价格</button></div>
@@ -184,11 +184,18 @@
 
       <section id="page-publish" class="page">
         <div class="toolbar"><select id="publishProductSelect" class="grow"><option value="">选择需要预检的产品</option></select><button id="runLocalPreflight" class="button secondary">本地预检</button><button id="runRemotePreflight" class="button primary">远程只读预检</button></div>
-        <div class="safety-callout"><strong>安全边界</strong><span>此页面只读取账号、类目与请求预览，不创建商品、不上传图片、不调用正式发布。</span></div>
+        <div class="safety-callout"><strong>安全边界</strong><span>预检始终只读。图片上传和正式发布是两个独立步骤；正式发布必须输入 PUBLISH，且服务器 MELI_PUBLISH_ENABLED=true 才会执行。</span></div>
         <div id="preflightSummary" class="metric-grid"></div>
         <div class="result-grid">
           <article class="panel"><div class="panel-title"><h3>校验结果</h3><span id="preflightBadge" class="status-pill">尚未运行</span></div><div id="preflightIssues" class="issues empty">请选择产品并运行预检。</div></article>
           <article class="panel"><div class="panel-title"><h3>Global UP JSON 预览</h3><button id="copyPreview" class="button ghost small">复制</button></div><pre id="payloadPreview">{}</pre></article>
+        </div>
+        <div class="panel publish-actions">
+          <div><strong>第一步：上传已审核图片</strong><p class="muted">只把当前规格关联的图片传到美客多图片服务，不创建刊登。</p></div>
+          <button id="uploadMeliPictures" class="button secondary">上传图片到美客多</button>
+          <label>第二次确认文字<input id="publishConfirmation" type="text" autocomplete="off" placeholder="正式发布前输入 PUBLISH"></label>
+          <button id="publishLive" class="button danger">正式发布所选 Family</button>
+          <pre id="publishResult">{}</pre>
         </div>
         <div class="section-heading"><div><p class="eyebrow">AUDIT TRAIL</p><h3>预检与发布任务日志</h3></div><button id="refreshJobs" class="button secondary">刷新日志</button></div>
         <div class="panel table-panel"><table><thead><tr><th>时间</th><th>站点</th><th>状态</th><th>HTTP</th><th>错误代码</th><th>错误信息</th></tr></thead><tbody id="jobsBody"></tbody></table></div>

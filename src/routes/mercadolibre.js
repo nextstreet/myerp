@@ -92,9 +92,9 @@ export async function mercadoLibreRoutes(app) {
   app.post('/api/integrations/mercadolibre/accounts/:accountId/category-discovery', async (request) => {
     if (!app.mercadoLibreOAuth) throw unavailable();
     const query = String(request.body?.query ?? '').trim();
-    const sites = request.body?.sites ?? ['MLM', 'MCO', 'MLC'];
+    const sites = request.body?.sites ?? ['CBT', 'MLM', 'MCO', 'MLC'];
     const limit = Math.min(Math.max(Number(request.body?.limit ?? 5), 1), 10);
-    const allowedSites = new Set(['MLM', 'MCO', 'MLC']);
+    const allowedSites = new Set(['CBT', 'MLM', 'MCO', 'MLC']);
     if (query.length < 2 || query.length > 200) {
       const error = new Error('query must contain between 2 and 200 characters');
       error.statusCode = 400;

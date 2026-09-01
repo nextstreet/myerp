@@ -1,26 +1,44 @@
 const SITE_NAMES = Object.freeze({ MLM: 'Mexico', MCO: 'Colombia', MLC: 'Chile' });
 
-function attributesFor(product, variant, listing) {
-  const attributes = [];
-  const push = (id, valueName) => {
-    if (valueName !== undefined && valueName !== null && String(valueName).trim()) {
-      attributes.push({ id, value_name: String(valueName) });
+function normalizedAttribute(id, value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    if (Array.isArray(value.values)) return { id, values: value.values.map((item) => ({
+      ...(item?.id ? { id: item.id } : {}),
+      ...(item?.name ? { name: item.name } : {})
+    })).filter((item) => item.id || item.name) };
+    return {
+      id,
+      ...(value.value_id ? { value_id: value.value_id } : {}),
+      ...(value.value_name ? { value_name: value.value_name } : {})
+    };
+  }
+  return { id, value_name: String(value) };
+}
+
+function attributesFor(_product, variant, listings) {
+  const attributes = new Map();
+  const push = (id, value) => {
+    const attribute = normalizedAttribute(String(id).trim().toUpperCase(), value);
+    if (attribute && (attribute.value_id || attribute.value_name || attribute.values?.length)) {
+      attributes.set(attribute.id, attribute);
     }
   };
-  push('SELLER_SKU', variant.sellerSku);
-  push('COLOR', variant.color);
-  push('SIZE', variant.size);
-  for (const [id, value] of Object.entries(product.rawAttributes ?? {})) push(id, value);
+  const globalAttributes = listings.find((listing) => listing.familyData?.globalAttributes)?.familyData?.globalAttributes
+    ?? {};
+  for (const [id, value] of Object.entries(globalAttributes)) push(id, value);
   for (const [id, value] of Object.entries(variant.otherAttributes ?? {})) push(id, value);
-  for (const [id, value] of Object.entries(listing.requiredAttributes ?? {})) push(id, value);
-  return attributes;
+  push('SELLER_SKU', variant.sellerSku);
+  if (!attributes.has('COLOR')) push('COLOR', variant.color);
+  if (!attributes.has('SIZE')) push('SIZE', variant.size);
+  return [...attributes.values()];
 }
 
 function imagesFor(variant, mediaByVariant) {
   return (mediaByVariant[variant.id] ?? [])
     .map((media) => typeof media === 'string' ? { internalId: media } : media)
-    .filter((media) => media.externalUrl || media.mercadoPictureId)
-    .map((media) => media.mercadoPictureId ? { id: media.mercadoPictureId } : { source: media.externalUrl });
+    .filter((media) => media.mercadoPictureId)
+    .map((media) => ({ id: media.mercadoPictureId }));
 }
 
 /**
@@ -34,31 +52,32 @@ export function buildGlobalUpFamilyPreview({ product, variants, listings, mediaB
   const globalCategoryId = product.globalCategoryId
     ?? listings.find((listing) => listing.globalCategoryId)?.globalCategoryId
     ?? null;
+  const saleTerms = listings.find((listing) => Array.isArray(listing.familyData?.globalSaleTerms))?.familyData?.globalSaleTerms ?? [];
   return {
-    schemaVersion: 'meli-global-item-batch-preview/v2',
+    schemaVersion: 'meli-global-up-family-preview/v4',
     destructive: false,
     requiresExplicitPublishConfirmation: true,
-    requests: selected.map((variant) => ({
+    request: {
       method: 'POST',
-      endpoint: '/global/items',
-      internalVariantId: variant.id,
-      sellerSku: variant.sellerSku,
-      body: {
+      endpoint: '/global/user-products/families',
+      body: selected.map((variant) => ({
         family_name: familyName,
         category_id: globalCategoryId,
         currency_id: listings[0]?.currency ?? 'USD',
-        attributes: attributesFor(product, variant, listings[0] ?? {}),
+        global_net_proceeds: variant.globalNetProceedsUsd,
+        available_quantity: variant.stock ?? 0,
+        description: {
+          plain_text: listings.find((listing) => listing.descriptionEnglish)?.descriptionEnglish ?? ''
+        },
+        attributes: attributesFor(product, variant, listings),
+        ...(saleTerms.length ? { sale_terms: saleTerms } : {}),
         pictures: imagesFor(variant, mediaByVariant),
         sites_to_sell: listings.map((listing) => ({
           site_id: listing.site,
-          logistic_type: 'remote',
-          title: listing.title,
-          price: listing.variantPrices?.[variant.id] ?? listing.price,
-          available_quantity: variant.stock ?? 0,
-          attributes: attributesFor(product, variant, listing)
+          logistic_type: 'remote'
         }))
-      }
-    })),
+      }))
+    },
     summary: {
       familyName,
       globalCategoryId,

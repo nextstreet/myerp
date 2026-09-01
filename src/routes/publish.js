@@ -1,6 +1,10 @@
 import { buildInternalUpDraft, preflightProductFamily } from '../domain/up-mapper.js';
 import { buildGlobalUpFamilyPreview } from '../integrations/mercadolibre/global-up-mapper.js';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { withTransaction } from '../db/pool.js';
+import { normalizeFamilyPublishResult } from '../integrations/mercadolibre/publish-result.js';
 
 function toProduct(row) {
   return {
@@ -25,6 +29,7 @@ function toVariant(row) {
     purchasePriceCny: row.purchase_price_cny === null ? null : Number(row.purchase_price_cny),
     packedWeightG: row.packed_weight_g,
     stock: row.stock,
+    globalNetProceedsUsd: row.global_net_proceeds_usd === null ? null : Number(row.global_net_proceeds_usd),
     participateInPublish: row.participate_in_publish
   };
 }
@@ -42,13 +47,12 @@ async function loadFamily(db, productId) {
       JOIN listings l ON l.id=lv.listing_id WHERE l.product_id=$1
     `, [productId]),
     db.query(`
-      SELECT vm.variant_id,vm.is_primary,pm.id AS media_id,pm.external_url,pm.storage_key,
-        pm.mercado_picture_id,pm.validation_status
-      FROM variant_media vm
-      JOIN product_media pm ON pm.id = vm.media_id
-      JOIN variants v ON v.id = vm.variant_id
-      WHERE v.product_id = $1 AND pm.media_type = 'image'
-      ORDER BY vm.variant_id, vm.sort_order
+      SELECT vm.variant_id,COALESCE(vm.is_primary,false) AS is_primary,pm.id AS media_id,pm.external_url,pm.storage_key,
+        pm.mercado_picture_id,pm.validation_status,pm.mime_type,pm.original_filename
+      FROM product_media pm
+      LEFT JOIN variant_media vm ON vm.media_id=pm.id
+      WHERE pm.product_id = $1 AND pm.media_type = 'image'
+      ORDER BY vm.variant_id NULLS LAST,vm.is_primary DESC,vm.sort_order,pm.sort_order,pm.created_at
     `, [productId])
   ]);
   if (!productResult.rowCount) {
@@ -57,34 +61,215 @@ async function loadFamily(db, productId) {
     error.code = 'product_not_found';
     throw error;
   }
-  const mediaByVariant = {};
-  for (const row of mediaResult.rows) (mediaByVariant[row.variant_id] ??= []).push({
-    id: row.media_id,
-    externalUrl: row.external_url,
-    storageKey: row.storage_key,
-    mercadoPictureId: row.mercado_picture_id,
-    validationStatus: row.validation_status,
-    isPrimary: row.is_primary
+  const mediaValue = (row) => ({
+    id: row.media_id, externalUrl: row.external_url, storageKey: row.storage_key,
+    mercadoPictureId: row.mercado_picture_id, validationStatus: row.validation_status,
+    mimeType: row.mime_type, originalFilename: row.original_filename, isPrimary: row.is_primary
   });
+  const mediaByVariant = {};
+  const sharedMedia = mediaResult.rows.filter((row) => !row.variant_id).map(mediaValue);
+  for (const row of mediaResult.rows.filter((item) => item.variant_id)) {
+    (mediaByVariant[row.variant_id] ??= []).push(mediaValue(row));
+  }
+  for (const variant of variantResult.rows) {
+    const own = mediaByVariant[variant.id] ?? [];
+    const ownIds = new Set(own.map((media) => media.id));
+    mediaByVariant[variant.id] = [...own, ...sharedMedia.filter((media) => !ownIds.has(media.id))].slice(0, 10);
+  }
   const pricesBySite = {};
   for (const row of listingVariantResult.rows) {
     (pricesBySite[row.site] ??= {})[row.variant_id] = Number(row.price);
   }
-  const listings = listingResult.rows.map((row) => ({
+  const product = toProduct(productResult.rows[0]);
+  const targetSites = Array.isArray(product.targetSites)
+    ? product.targetSites
+    : String(product.targetSites ?? '').replace(/^\{|\}$/g, '').split(',').filter(Boolean);
+  const listings = listingResult.rows.filter((row) => targetSites.includes(row.site)).map((row) => ({
+    id: row.id,
     site: row.site,
     title: row.title,
+    descriptionEnglish: row.description_english,
     categoryId: row.category_id,
     currency: row.currency,
     price: row.pricing_basis?.normalPrice ?? null,
     requiredAttributes: row.required_attributes,
+    familyName: row.family_name,
+    familyData: row.family_data ?? {},
     globalCategoryId: row.family_data?.globalCategoryId ?? row.family_data?.global_category_id ?? null,
     variantPrices: pricesBySite[row.site] ?? {}
   }));
   return {
-    product: toProduct(productResult.rows[0]),
+    product,
     variants: variantResult.rows.map(toVariant),
     listings,
     mediaByVariant
+  };
+}
+
+function problem(message, code, statusCode = 400, details) {
+  const error = new Error(message);
+  error.code = code;
+  error.statusCode = statusCode;
+  error.details = details;
+  return error;
+}
+
+function pictureId(payload) {
+  return payload?.id ?? payload?.picture_id ?? payload?.variations?.[0]?.id ?? null;
+}
+
+async function uploadRequiredPictures(app, accountId, family) {
+  const unique = new Map();
+  for (const images of Object.values(family.mediaByVariant)) {
+    for (const image of images) unique.set(image.id, image);
+  }
+  const uploaded = [];
+  const skipped = [];
+  const externalOnly = [...unique.values()].filter((media) => !media.mercadoPictureId && media.externalUrl);
+  if (externalOnly.length) {
+    throw problem('External image links must be downloaded and uploaded into Tianchuan ERP before Mercado Libre upload',
+      'external_media_requires_local_upload', 422, { mediaIds: externalOnly.map((media) => media.id) });
+  }
+  const unreviewed = [...unique.values()].filter((media) => !media.mercadoPictureId && media.validationStatus !== 'ready');
+  if (unreviewed.length) {
+    throw problem('Every selected image must be marked ready before Mercado Libre upload',
+      'media_review_required', 422, { mediaIds: unreviewed.map((media) => media.id) });
+  }
+  for (const media of unique.values()) {
+    if (media.mercadoPictureId) {
+      skipped.push({ mediaId: media.id, reason: 'already_uploaded' });
+      continue;
+    }
+    if (!media.storageKey) throw problem('A selected image has no local file or external URL', 'media_source_missing', 422, { mediaId: media.id });
+    const root = resolve(app.config.storage.localRoot);
+    const path = resolve(root, media.storageKey);
+    if (!path.startsWith(`${root}/`)) throw problem('Invalid media storage path', 'invalid_storage_path', 500);
+    const bytes = await readFile(path);
+    const response = await app.mercadoLibreOAuth.uploadPicture(accountId, {
+      bytes,
+      mimeType: media.mimeType,
+      filename: media.originalFilename
+    });
+    const id = response.ok ? pictureId(response.payload) : null;
+    if (!id) {
+      const code = response.payload?.error ?? `http_${response.status}`;
+      await app.db.query(`
+        UPDATE product_media SET validation_status='rejected',mercado_upload_error=$2 WHERE id=$1
+      `, [media.id, String(code).slice(0, 500)]);
+      throw problem(`Mercado Libre picture upload returned HTTP ${response.status}`, 'meli_picture_upload_failed', 502, { mediaId: media.id, httpStatus: response.status, providerCode: code });
+    }
+    await app.db.query(`
+      UPDATE product_media SET mercado_picture_id=$2,validation_status='ready',
+        mercado_upload_error=NULL,mercado_uploaded_at=now() WHERE id=$1
+    `, [media.id, id]);
+    uploaded.push({ mediaId: media.id, mercadoPictureId: id });
+  }
+  return { uploaded, skipped };
+}
+
+async function recordPublishJobs(app, family, requestKey, values) {
+  for (const listing of family.listings) {
+    await app.db.query(`
+      INSERT INTO publish_jobs (
+        product_id,listing_id,site,idempotency_key,operation,request_summary,response_summary,
+        http_status,error_code,error_message,status,completed_at
+      ) VALUES ($1,$2,$3,$4,'family_publish',$5,$6,$7,$8,$9,$10,now())
+      ON CONFLICT (idempotency_key) DO UPDATE SET
+        response_summary=EXCLUDED.response_summary,http_status=EXCLUDED.http_status,
+        error_code=EXCLUDED.error_code,error_message=EXCLUDED.error_message,
+        status=EXCLUDED.status,completed_at=now()
+    `, [family.product.id, listing.id, listing.site, `publish:${requestKey}:${listing.site}`,
+      values.requestSummary, values.responseSummary, values.httpStatus,
+      values.errorCode ?? null, values.errorMessage ?? null, values.status]);
+  }
+}
+
+function missingRequiredAttributesFor(family, requirements) {
+  const missing = [];
+  const selectedVariants = family.variants.filter((variant) => variant.participateInPublish !== false);
+  const variantAttributeIds = new Set(Object.keys(selectedVariants[0]?.otherAttributes ?? {}).filter((id) =>
+    selectedVariants.every((variant) => Object.hasOwn(variant.otherAttributes ?? {}, id))
+  ).map((id) => id.toUpperCase()));
+  for (const category of requirements.categories) {
+    const listing = family.listings.find((item) => item.categoryId === category.categoryId);
+    const globalAttributes = family.listings.find((item) => item.familyData?.globalAttributes)?.familyData?.globalAttributes ?? {};
+    const supplied = new Set([
+      ...Object.keys(listing?.requiredAttributes ?? {}),
+      ...Object.keys(category.categoryId?.startsWith('CBT') ? globalAttributes : {}),
+      ...variantAttributeIds
+    ].map((id) => id.toUpperCase()));
+    for (const attribute of category.requiredAttributes) {
+      if (!supplied.has(String(attribute.id).toUpperCase()) && !['SELLER_SKU', 'COLOR', 'SIZE'].includes(attribute.id)) {
+        missing.push({ categoryId: category.categoryId, site: listing?.site ?? 'CBT', attributeId: attribute.id, name: attribute.name });
+      }
+    }
+  }
+  return missing;
+}
+
+async function persistPublishResult(app, family, normalized, rawPayload) {
+  const variantsBySku = new Map(family.variants.map((variant) => [variant.sellerSku, variant]));
+  const expected = family.variants.filter((variant) => variant.participateInPublish !== false);
+  const returnedSkus = new Set(normalized.userProducts.map((item) => item.sellerSku).filter(Boolean));
+  const missingSkus = expected.map((variant) => variant.sellerSku).filter((sku) => !returnedSkus.has(sku));
+  const failedProducts = normalized.userProducts.filter((item) => item.error);
+  const incompleteIdentifiers = normalized.userProducts.flatMap((item) => {
+    const missing = [];
+    if (!item.userProductId) missing.push('userProductId');
+    if (!item.globalItemId) missing.push('globalItemId');
+    for (const listing of family.listings) {
+      if (!item.sites.find((site) => site.site === listing.site)?.itemId) missing.push(`itemId:${listing.site}`);
+    }
+    return missing.length ? [{ sellerSku: item.sellerSku, missing }] : [];
+  });
+  const complete = Boolean(normalized.familyId) && !missingSkus.length && !failedProducts.length
+    && !incompleteIdentifiers.length;
+  const publishStatus = complete ? 'published' : 'publish_failed';
+
+  await withTransaction(app.db, async (client) => {
+    for (const item of normalized.userProducts) {
+      const variant = variantsBySku.get(item.sellerSku);
+      if (!variant) continue;
+      for (const listing of family.listings) {
+        const siteResult = item.sites.find((site) => site.site === listing.site);
+        await client.query(`
+          UPDATE listing_variants SET mercado_libre_user_product_id=$3,
+            mercado_libre_global_item_id=COALESCE($4,mercado_libre_global_item_id),
+            mercado_libre_item_id=COALESCE($5,mercado_libre_item_id),
+            mercado_payload=$6,publish_status=$7,publish_error=$8
+          WHERE listing_id=$1 AND variant_id=$2
+        `, [listing.id, variant.id, item.userProductId, item.globalItemId, siteResult?.itemId ?? null,
+          item.raw ?? {}, item.error || siteResult?.error || !siteResult?.itemId ? 'failed' : 'published',
+          item.error ?? siteResult?.error ?? (!siteResult?.itemId ? { code: 'item_id_missing' } : {})]);
+      }
+    }
+    for (const listing of family.listings) {
+      const siteProducts = normalized.userProducts.map((item) => ({
+        sellerSku: item.sellerSku,
+        userProductId: item.userProductId,
+        globalItemId: item.globalItemId,
+        itemId: item.sites.find((site) => site.site === listing.site)?.itemId ?? null
+      }));
+      await client.query(`
+        UPDATE listings SET mercado_libre_family_id=$2,family_data=family_data || $3,user_product_data=$4,
+          publish_status=$6,mercado_libre_item_id=COALESCE($5,mercado_libre_item_id)
+        WHERE id=$1
+      `, [listing.id, normalized.familyId, { familyId: normalized.familyId }, siteProducts,
+        siteProducts.find((item) => item.itemId)?.itemId ?? null, publishStatus]);
+    }
+    await client.query('UPDATE products SET status=$2 WHERE id=$1', [family.product.id, publishStatus]);
+  });
+  return {
+    complete,
+    issues: {
+      missingFamilyId: !normalized.familyId,
+      missingSkus,
+      failedSellerSkus: failedProducts.map((item) => item.sellerSku).filter(Boolean),
+      incompleteIdentifiers
+    },
+    familyId: normalized.familyId,
+    userProducts: normalized.userProducts,
+    providerResponse: rawPayload
   };
 }
 
@@ -141,29 +326,21 @@ export async function publishRoutes(app) {
     const family = await loadFamily(app.db, request.params.productId);
     const local = preflightProductFamily(family);
     const capabilities = await app.mercadoLibreOAuth.inspectCapabilities(accountId);
-    const categoryIds = family.listings.map((listing) => listing.categoryId).filter(Boolean);
+    const previewForCategory = local.valid ? buildGlobalUpFamilyPreview(family) : null;
+    const globalCategoryId = family.listings.find((listing) => listing.globalCategoryId)?.globalCategoryId ?? null;
+    const categoryIds = [...family.listings.map((listing) => listing.categoryId), globalCategoryId].filter(Boolean);
     const categoryRequirements = await app.mercadoLibreOAuth.categoryRequirements(accountId, categoryIds);
-    const missingRequiredAttributes = [];
-    for (const category of categoryRequirements.categories) {
-      const listing = family.listings.find((item) => item.categoryId === category.categoryId);
-      const supplied = new Set(Object.keys(listing?.requiredAttributes ?? {}));
-      for (const attribute of category.requiredAttributes) {
-        if (!supplied.has(attribute.id)) missingRequiredAttributes.push({
-          categoryId: category.categoryId,
-          site: listing?.site ?? null,
-          attributeId: attribute.id,
-          name: attribute.name
-        });
-      }
-    }
-    const preview = local.valid ? buildGlobalUpFamilyPreview(family) : null;
+    const missingRequiredAttributes = missingRequiredAttributesFor(family, categoryRequirements);
+    const missingGlobalAttributes = missingRequiredAttributes.filter((item) => item.categoryId?.startsWith('CBT'));
+    const preview = previewForCategory;
     const remoteErrors = [];
     if (!capabilities.globalSelling) remoteErrors.push({ code: 'account_not_global_selling' });
     if (!capabilities.userProductSeller) remoteErrors.push({ code: 'user_product_seller_tag_missing' });
-    if (!categoryRequirements.ok) remoteErrors.push({ code: 'category_metadata_lookup_failed' });
-    if (missingRequiredAttributes.length) remoteErrors.push({ code: 'required_attributes_missing', count: missingRequiredAttributes.length });
-    if (preview && !preview.summary.globalCategoryId) remoteErrors.push({ code: 'global_category_missing' });
-    const missingPublishablePictures = preview?.requests.filter((request) => !request.body.pictures.length).length ?? 0;
+    const globalCategoryMetadata = categoryRequirements.categories.find((item) => item.categoryId === globalCategoryId);
+    if (globalCategoryId && !globalCategoryMetadata?.ok) remoteErrors.push({ code: 'global_category_metadata_lookup_failed' });
+    if (missingGlobalAttributes.length) remoteErrors.push({ code: 'global_required_attributes_missing', count: missingGlobalAttributes.length });
+    if (!globalCategoryId) remoteErrors.push({ code: 'global_category_missing' });
+    const missingPublishablePictures = preview?.request.body.filter((item) => !item.pictures.length).length ?? 0;
     if (missingPublishablePictures) remoteErrors.push({ code: 'picture_upload_pending', count: missingPublishablePictures });
     const response = {
       ok: local.valid && remoteErrors.length === 0,
@@ -173,6 +350,7 @@ export async function publishRoutes(app) {
       capabilities,
       categoryRequirements,
       missingRequiredAttributes,
+      missingGlobalAttributes,
       remoteErrors,
       preview
     };
@@ -184,11 +362,24 @@ export async function publishRoutes(app) {
         ) VALUES ($1,$2,$3,$4,$5,200,$6,$7,$8,now())
       `, [family.product.id, site, `preflight:${randomUUID()}`,
         { operation: 'read_only_remote_preflight', accountId, variantCount: local.summary.variantCount },
-        { ok: response.ok, errorCount: remoteErrors.length, missingRequiredAttributeCount: missingRequiredAttributes.length },
+        { ok: response.ok, errorCount: remoteErrors.length, missingRequiredAttributeCount: missingRequiredAttributes.length,
+          missingGlobalAttributeCount: missingGlobalAttributes.length },
         remoteErrors[0]?.code ?? null, remoteErrors.length ? 'Remote preflight requires corrections' : null,
         response.ok ? 'validation_passed' : 'validation_failed']);
     }
     return response;
+  });
+
+  app.post('/:productId/upload-pictures', async (request) => {
+    if (!app.mercadoLibreOAuth) throw problem('Mercado Libre OAuth is not configured', 'meli_not_configured', 503);
+    if (request.body?.confirmation !== 'UPLOAD_PICTURES') {
+      throw problem('Explicit UPLOAD_PICTURES confirmation is required', 'picture_upload_confirmation_required');
+    }
+    const accountId = request.body?.accountId;
+    if (!accountId) throw problem('accountId is required', 'validation_error');
+    const family = await loadFamily(app.db, request.params.productId);
+    const result = await uploadRequiredPictures(app, accountId, family);
+    return { ok: true, liveListingCreated: false, ...result };
   });
 
   app.post('/:productId/live', async (request) => {
@@ -204,9 +395,123 @@ export async function publishRoutes(app) {
       error.statusCode = 403;
       throw error;
     }
-    const error = new Error('Official site-specific UP publishing adapter is not enabled in v0.5.0');
-    error.statusCode = 501;
-    error.code = 'publishing_adapter_pending';
-    throw error;
+    if (!app.mercadoLibreOAuth) throw problem('Mercado Libre OAuth is not configured', 'meli_not_configured', 503);
+    const accountId = request.body?.accountId;
+    const requestKey = String(request.body?.requestKey ?? '').trim();
+    if (!accountId || requestKey.length < 16 || requestKey.length > 120) {
+      throw problem('accountId and a 16-120 character requestKey are required', 'validation_error');
+    }
+    const family = await loadFamily(app.db, request.params.productId);
+    const replayKey = `publish:${requestKey}:${family.listings[0]?.site ?? 'MLM'}`;
+    const reconciliation = await app.db.query(`
+      SELECT id FROM publish_jobs
+      WHERE product_id=$1 AND operation='family_publish'
+        AND response_summary->>'providerAccepted'='true' AND status<>'published'
+      LIMIT 1
+    `, [request.params.productId]);
+    if (reconciliation.rowCount) {
+      throw problem('A previous Mercado Libre request was accepted but its result was not fully reconciled. Do not republish.',
+        'publish_reconciliation_required', 409);
+    }
+    const existing = await app.db.query(`
+      SELECT id,response_summary,status,error_code FROM publish_jobs
+      WHERE product_id=$1 AND idempotency_key=$2 LIMIT 1
+    `, [request.params.productId, replayKey]);
+    if (existing.rows[0]?.status === 'published') {
+      return { ok: true, idempotentReplay: true, ...existing.rows[0].response_summary };
+    }
+    if (existing.rowCount && existing.rows[0].error_code !== 'meli_transport_error') {
+      throw problem('This publish request key is already in progress or was rejected. Use a new key only after correcting the data.',
+        'publish_request_already_claimed', 409);
+    }
+
+    const local = preflightProductFamily(family);
+    if (!local.valid) throw problem('Product family failed local preflight', 'preflight_failed', 422, local);
+    const capabilities = await app.mercadoLibreOAuth.inspectCapabilities(accountId);
+    if (!capabilities.globalSelling || !capabilities.userProductSeller) {
+      throw problem('Connected account is not enabled for Global Selling UP publication', 'meli_up_capability_missing', 422, capabilities);
+    }
+    const preview = buildGlobalUpFamilyPreview(family);
+    if (!preview.summary.globalCategoryId) throw problem('CBT global category is required', 'global_category_missing', 422);
+    const requirements = await app.mercadoLibreOAuth.categoryRequirements(accountId, [preview.summary.globalCategoryId]);
+    const missingRequiredAttributes = missingRequiredAttributesFor(family, requirements);
+    if (!requirements.ok || missingRequiredAttributes.length) {
+      throw problem('Current Mercado Libre category requirements are not satisfied', 'required_attributes_missing', 422, { missingRequiredAttributes });
+    }
+    if (preview.request.body.some((item) => !item.pictures.length)) {
+      throw problem('Every selected variant needs an uploaded picture or HTTPS source', 'picture_upload_pending', 422);
+    }
+
+    const claimed = existing.rowCount
+      ? await app.db.query(`
+          UPDATE publish_jobs SET status='publishing',error_code=NULL,error_message=NULL,
+            completed_at=NULL,retry_count=retry_count+1
+          WHERE id=$1 AND status='failed' AND error_code='meli_transport_error' RETURNING id
+        `, [existing.rows[0].id])
+      : await app.db.query(`
+          INSERT INTO publish_jobs (
+            product_id,listing_id,site,idempotency_key,operation,request_summary,status
+          ) VALUES ($1,$2,$3,$4,'family_publish',$5,'publishing')
+          ON CONFLICT (idempotency_key) DO NOTHING RETURNING id
+        `, [family.product.id, family.listings[0].id, family.listings[0].site, replayKey,
+          { endpoint: preview.request.endpoint, variantCount: local.summary.variantCount }]);
+    if (!claimed.rowCount) {
+      throw problem('This publish request key is already in progress or previously failed; inspect the job before retrying', 'publish_request_already_claimed', 409);
+    }
+
+    await app.db.query("UPDATE products SET status='publishing' WHERE id=$1", [family.product.id]);
+    let response;
+    try {
+      response = await app.mercadoLibreOAuth.authenticatedRequest(
+        accountId,
+        preview.request.endpoint,
+        { method: preview.request.method, body: preview.request.body, idempotencyKey: requestKey }
+      );
+    } catch (error) {
+      await app.db.query("UPDATE products SET status='publish_failed' WHERE id=$1", [family.product.id]);
+      await recordPublishJobs(app, family, requestKey, {
+        requestSummary: { endpoint: preview.request.endpoint, variantCount: local.summary.variantCount },
+        responseSummary: { ok: false, transportError: true }, httpStatus: null,
+        errorCode: 'meli_transport_error', errorMessage: error.message, status: 'failed'
+      });
+      throw problem('Mercado Libre publication request could not be completed', 'meli_transport_error', 502);
+    }
+    if (!response.ok) {
+      const code = response.payload?.error ?? response.payload?.cause?.[0]?.code ?? `http_${response.status}`;
+      const message = response.payload?.message ?? 'Mercado Libre family publication failed';
+      await app.db.query("UPDATE products SET status='publish_failed' WHERE id=$1", [family.product.id]);
+      await recordPublishJobs(app, family, requestKey, {
+        requestSummary: { endpoint: preview.request.endpoint, variantCount: local.summary.variantCount },
+        responseSummary: { ok: false, providerCode: code }, httpStatus: response.status,
+        errorCode: String(code).slice(0, 200), errorMessage: String(message).slice(0, 1000), status: 'failed'
+      });
+      throw problem(`Mercado Libre publication returned HTTP ${response.status}`, 'meli_family_publish_failed', 502, { providerCode: code, providerMessage: message });
+    }
+    const selectedSellerSkus = family.variants
+      .filter((variant) => variant.participateInPublish !== false)
+      .map((variant) => variant.sellerSku);
+    const normalized = normalizeFamilyPublishResult(response.payload, selectedSellerSkus);
+    let saved;
+    try {
+      saved = await persistPublishResult(app, family, normalized, response.payload);
+      if (!saved.complete) {
+        throw problem('Mercado Libre accepted the Family but returned an incomplete identifier mapping. Do not republish.',
+          'meli_partial_family_response', 502, saved.issues);
+      }
+    } catch (error) {
+      await app.db.query("UPDATE products SET status='publish_failed' WHERE id=$1", [family.product.id]);
+      await recordPublishJobs(app, family, requestKey, {
+        requestSummary: { endpoint: preview.request.endpoint, variantCount: local.summary.variantCount },
+        responseSummary: { ok: false, partialResponse: true, providerAccepted: true }, httpStatus: response.status,
+        errorCode: error.code ?? 'meli_result_persist_failed', errorMessage: error.message, status: 'failed'
+      });
+      throw error;
+    }
+    const responseSummary = { ok: true, familyId: saved.familyId, userProducts: saved.userProducts.map((item) => ({ sellerSku: item.sellerSku, userProductId: item.userProductId, sites: item.sites })) };
+    await recordPublishJobs(app, family, requestKey, {
+      requestSummary: { endpoint: preview.request.endpoint, variantCount: local.summary.variantCount },
+      responseSummary, httpStatus: response.status, status: 'published'
+    });
+    return { ok: true, idempotentReplay: false, ...responseSummary };
   });
 }

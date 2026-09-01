@@ -313,6 +313,16 @@ export class MercadoLibreOAuthService {
     return response;
   }
 
+  async uploadPicture(accountId, picture) {
+    let token = await this.getAccessToken(accountId);
+    let response = await this.apiClient.uploadPicture({ ...picture, accessToken: token });
+    if (response.status === 401) {
+      token = await this.getAccessToken(accountId, { forceRefresh: true });
+      response = await this.apiClient.uploadPicture({ ...picture, accessToken: token });
+    }
+    return response;
+  }
+
   async listAccounts() {
     const result = await this.pool.query(`
       SELECT sa.id, sa.meli_user_id, sa.nickname, sa.site_default, sa.account_type,
