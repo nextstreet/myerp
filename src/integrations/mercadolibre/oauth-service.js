@@ -414,10 +414,8 @@ export class MercadoLibreOAuthService {
     const connectedSellerId = String(account.rows[0].meli_user_id);
     const ownerId = String(item.owner_id ?? '');
     const sellerId = String(item.seller_id ?? '');
-    if (ownerId && ownerId !== connectedSellerId) {
-      throw oauthError('The requested item does not belong to the connected Global Selling account', 'meli_item_not_owned', 403);
-    }
-    if (!ownerId && sellerId !== connectedSellerId) {
+    const itemAccountIds = [ownerId, sellerId].filter(Boolean);
+    if (!itemAccountIds.includes(connectedSellerId)) {
       const marketplacesResponse = await this.authenticatedRequest(
         accountId,
         `/marketplace/users/${encodeURIComponent(connectedSellerId)}`
@@ -425,7 +423,11 @@ export class MercadoLibreOAuthService {
       const marketplaceSellerIds = Array.isArray(marketplacesResponse.payload?.marketplaces)
         ? marketplacesResponse.payload.marketplaces.map((marketplace) => String(marketplace.user_id))
         : [];
-      if (!marketplacesResponse.ok || !marketplaceSellerIds.includes(sellerId)) {
+      // Global Selling items can expose the owner/seller ID of a marketplace
+      // child account rather than the connected CBT parent account. Accept the
+      // item only when at least one provider-supplied ownership ID belongs to
+      // the official marketplace mapping for the connected parent.
+      if (!marketplacesResponse.ok || !itemAccountIds.some((id) => marketplaceSellerIds.includes(id))) {
         throw oauthError('The requested item does not belong to the connected Global Selling account', 'meli_item_not_owned', 403);
       }
     }
