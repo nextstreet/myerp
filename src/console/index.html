@@ -42,7 +42,7 @@
 
       <section id="page-products" class="page active">
         <div class="toolbar">
-          <select id="productStatusFilter"><option value="">全部状态</option><option value="pending_ai">待AI处理</option><option value="pending_review">待审核</option><option value="pending_publish">待发布</option><option value="published">已发布</option><option value="publish_failed">发布失败</option><option value="paused">已暂停</option></select>
+          <select id="productStatusFilter"><option value="">全部状态</option><option value="pending_ai">待AI处理</option><option value="pending_review">待审核</option><option value="pending_publish">待发布</option><option value="published">已发布</option><option value="publish_failed">发布失败</option><option value="reconciliation_required">平台已受理·待对账</option><option value="paused">已暂停</option></select>
           <input id="productSearch" class="grow" type="search" placeholder="搜索：内部编号 / 标题 / 颜色 / SKU">
           <button id="refreshProducts" class="button secondary">刷新</button>
           <button class="button primary push-right" data-go="import">＋ 新建产品</button>
@@ -60,6 +60,7 @@
         <form id="importForm">
           <div class="section-heading"><div><p class="eyebrow">PRODUCT SOURCE</p><h3>产品资料</h3></div><span class="step-chip">步骤 1 / 2</span></div>
           <div class="panel form-grid">
+            <label class="span-2">本产品工作流<select name="workflowType" required><option value="new_product">新商品上架（创建新 Family）</option><option value="add_variants">为既有 Family 增加规格</option></select><small class="muted">两条流程独立；增加规格不会创建新 Family。</small></label>
             <label>内部产品编号<input name="internalCode" required placeholder="例如 INTERNAL-PRODUCT-001"></label>
             <label>1688 商品链接<input name="sourceUrl" type="url" placeholder="https://detail.1688.com/..."></label>
             <label class="span-2">原始中文标题<input name="originalTitle" required></label>
@@ -91,6 +92,8 @@
             <span id="aiProviderBadge" class="status-pill">检查中</span>
           </div>
 
+          <div class="panel workflow-control"><div><strong>产品工作流</strong><p class="muted">新商品创建新 Family；增加规格只更新明确的既有 Family。</p></div><select id="aiWorkflowType"><option value="new_product">新商品上架</option><option value="add_variants">既有 Family 增加规格</option></select><button id="saveWorkflowType" class="button secondary">保存流程</button></div>
+
           <div class="section-heading"><div><p class="eyebrow">FACT CONTROL</p><h3>产品事实与AI建议</h3></div><span id="aiFactRevision" class="step-chip">版本 0</span></div>
           <div class="fact-grid">
             <article class="panel fact-card">
@@ -115,6 +118,9 @@
             <button id="uploadAiMedia" class="button secondary">批量上传</button>
           </div>
           <div id="aiMediaGrid" class="media-grid selectable-media"></div>
+
+          <div class="section-heading"><div><p class="eyebrow">CATEGORY GATE</p><h3>三国类目与多规格能力</h3><p class="muted">AI生成当地搜索词，候选和多规格属性均读取美客多官方接口。确认类目前不能生成AI刊登文案。</p></div><button id="runCategoryAssessment" class="button accent">分析三国类目</button></div>
+          <div id="categoryAssessmentGrid" class="country-grid"></div>
 
           <div class="section-heading"><div><p class="eyebrow">COPY GENERATION</p><h3>三国标题、英文描述与参数</h3></div><button id="generateAiCopy" class="button accent">生成三国文案草稿</button></div>
           <div class="safety-callout compact"><strong>生成依据</strong><span>人工确认事实 ＞ 手工补充事实 ＞ 产品原始资料。未确认的AI建议不会进入文案或图片生成，也不会覆盖已保存刊登。</span></div>
@@ -188,7 +194,9 @@
       <section id="page-publish" class="page">
         <div class="toolbar"><select id="publishProductSelect" class="grow"><option value="">选择需要预检的产品</option></select><button id="runLocalPreflight" class="button secondary">本地预检</button><button id="runRemotePreflight" class="button primary">远程只读预检</button></div>
         <div class="panel publish-site-selector"><strong>选择本次发布国家</strong><label><input type="checkbox" name="publishSite" value="MLM"> Mexico · MLM</label><label><input type="checkbox" name="publishSite" value="MCO"> Colombia · MCO</label><label><input type="checkbox" name="publishSite" value="MLC"> Chile · MLC</label><span class="muted">每次预检和正式发布只使用当前勾选站点。</span></div>
-        <div class="panel publish-site-selector"><strong>Family 发布模式</strong><label><select id="familyPublishMode"><option value="create">新建 Family</option><option value="update">更新既有 Family（增量规格）</option></select></label><label class="grow">既有商品 ID 或 Family ID<input id="existingFamilyItemId" type="text" autocomplete="off" placeholder="商品ID：CBT4218176737 / MCO4393187474 · Family ID：6751506539918609"></label><span class="muted">增量模式支持三种目标：商品 ID（只读解析 Siteless Family）、直接填 Family ID（数字）、留空（使用本产品已持久化的 Family）。类目不一致或归属不符时禁止发布。</span></div>
+        <input id="familyPublishMode" type="hidden" value="create">
+        <div class="workflow-grid"><article id="publishFlowCreate" class="panel workflow-card"><strong>新商品上架</strong><p>创建新的 Product Family，并发布本产品中勾选的全部规格。</p></article><article id="publishFlowUpdate" class="panel workflow-card"><strong>既有 Family 增加规格</strong><p>只向已确认的 Family 增加本产品规格，不创建新 Family。</p></article></div>
+        <div id="existingFamilyTargetPanel" class="panel publish-site-selector hidden"><strong>既有 Family 目标</strong><label class="grow">既有商品 ID 或 Family ID<input id="existingFamilyItemId" type="text" autocomplete="off" placeholder="商品ID：CBT1000000000 / MCO1000000001 · Family ID：1000000000000001"></label><span class="muted">可使用商品 ID 只读解析、直接填写 Family ID，或留空使用本产品已持久化的唯一 Family。</span></div>
         <div class="safety-callout"><strong>安全边界</strong><span>预检始终只读。图片上传和正式发布是两个独立步骤；正式发布必须输入 PUBLISH，且服务器 MELI_PUBLISH_ENABLED=true 才会执行。</span></div>
         <div id="preflightSummary" class="metric-grid"></div>
         <div class="result-grid">

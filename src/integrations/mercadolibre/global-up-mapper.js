@@ -48,7 +48,13 @@ function imagesFor(variant, mediaByVariant) {
  */
 export function buildGlobalUpFamilyPreview({ product, variants, listings, mediaByVariant = {}, publishTarget = { mode: 'create' } }) {
   const selected = variants.filter((variant) => variant.participateInPublish !== false);
-  const familyName = product.familyName ?? product.originalTitle;
+  const requestedFamilyName = product.familyName ?? product.originalTitle;
+  // Updating an existing Family must not rename it as an incidental side
+  // effect of adding variants. Prefer the provider-read existing name whenever
+  // it is available, while keeping the requested value visible in the preview.
+  const familyName = publishTarget?.mode === 'update' && publishTarget.existingFamilyName
+    ? publishTarget.existingFamilyName
+    : requestedFamilyName;
   const globalCategoryId = product.globalCategoryId
     ?? listings.find((listing) => listing.globalCategoryId)?.globalCategoryId
     ?? null;
@@ -95,6 +101,8 @@ export function buildGlobalUpFamilyPreview({ product, variants, listings, mediaB
     },
     summary: {
       familyName,
+      requestedFamilyName,
+      familyNamePreserved: publishMode === 'update' && Boolean(publishTarget.existingFamilyName),
       globalCategoryId,
       publishMode,
       sitelessFamilyId: publishMode === 'update' ? sitelessFamilyId : null,

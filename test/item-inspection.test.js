@@ -128,7 +128,7 @@ test('CBT item inspection accepts an official marketplace child owner', async ()
   const calls = [];
   const service = new MercadoLibreOAuthService({
     config: {},
-    pool: { async query() { return { rowCount: 1, rows: [{ meli_user_id: '3385555772' }] }; } },
+    pool: { async query() { return { rowCount: 1, rows: [{ meli_user_id: '1000000000' }] }; } },
     cipher: {},
     apiClient: {}
   });
@@ -136,20 +136,129 @@ test('CBT item inspection accepts an official marketplace child owner', async ()
     calls.push(path);
     if (path.startsWith('/marketplace/items/CBT')) return {
       ok: true, status: 200, payload: {
-        id: 'CBT4218176737', site_id: 'CBT', owner_id: 445566,
-        seller_id: 445566, category_id: 'CBT388338', family_id: '99887766',
+        id: 'CBT1000000000', site_id: 'CBT', owner_id: 445566,
+        seller_id: 445566, category_id: 'CBT100001', family_id: '99887766',
         family_name: 'Synthetic organizer'
       }
     };
-    if (path === '/marketplace/users/3385555772') return {
+    if (path === '/marketplace/users/1000000000') return {
       ok: true, status: 200, payload: { marketplaces: [{ site_id: 'MCO', user_id: 445566 }] }
     };
     return { ok: false, status: 404, payload: {} };
   };
 
-  const result = await service.inspectItem('account-1', 'CBT4218176737');
+  const result = await service.inspectItem('account-1', 'CBT1000000000');
 
-  assert.ok(calls.includes('/marketplace/users/3385555772'));
+  assert.ok(calls.includes('/marketplace/users/1000000000'));
   assert.equal(result.globalItem.familyId, '99887766');
-  assert.equal(result.globalItem.categoryId, 'CBT388338');
+  assert.equal(result.globalItem.categoryId, 'CBT100001');
+});
+
+test('CBT item inspection resolves a Siteless Family ID from an advertised marketplace child', async () => {
+  const calls = [];
+  const service = new MercadoLibreOAuthService({
+    config: {},
+    pool: { async query() { return { rowCount: 1, rows: [{ meli_user_id: '1000000000' }] }; } },
+    cipher: {},
+    apiClient: {}
+  });
+  service.authenticatedRequest = async (_accountId, path) => {
+    calls.push(path);
+    if (path.startsWith('/marketplace/items/CBT')) return {
+      ok: true, status: 200, payload: {
+        id: 'CBT1000000000', site_id: 'CBT', owner_id: 1000000000,
+        seller_id: 1000000000, category_id: 'CBT100001',
+        family_name: 'Synthetic organizer',
+        site_items: [
+          { site_id: 'MLC', item_id: 'MLC1000000002' },
+          { site_id: 'MCO', item_id: 'MCO1000000001' }
+        ]
+      }
+    };
+    if (path.startsWith('/marketplace/items/MCO1000000001')) return {
+      ok: true, status: 200, payload: {
+        id: 'MCO1000000001', site_id: 'MCO', siteless_family_id: '99887766'
+      }
+    };
+    return { ok: false, status: 404, payload: {} };
+  };
+
+  const result = await service.inspectItem('account-1', 'CBT1000000000');
+
+  assert.ok(calls.includes('/marketplace/items/MCO1000000001?include_attributes=all'));
+  assert.ok(!calls.some((path) => path.startsWith('/marketplace/items/MLC')));
+  assert.equal(result.globalItem.familyId, '99887766');
+  assert.equal(result.globalItem.categoryId, 'CBT100001');
+});
+
+test('item inspection preserves a Family ID exposed directly by a marketplace item', () => {
+  const result = normalizeItemInspection({
+    item: { id: 'MCO1000000001', site_id: 'MCO', siteless_family_id: '99887766' },
+    globalItem: null,
+    description: null,
+    userProduct: null,
+    userProductStatus: 'not_applicable'
+  });
+  assert.equal(result.item.familyId, '99887766');
+});
+
+test('CBT item inspection resolves Family ID through a child User Product detail', async () => {
+  const calls = [];
+  const service = new MercadoLibreOAuthService({
+    config: {},
+    pool: { async query() { return { rowCount: 1, rows: [{ meli_user_id: '1000000000' }] }; } },
+    cipher: {},
+    apiClient: {}
+  });
+  service.authenticatedRequest = async (_accountId, path) => {
+    calls.push(path);
+    if (path.startsWith('/marketplace/items/CBT')) return {
+      ok: true, status: 200, payload: {
+        id: 'CBT1000000000', site_id: 'CBT', owner_id: 1000000000,
+        seller_id: 1000000000, category_id: 'CBT100001',
+        site_items: [{ site_id: 'MCO', item_id: 'MCO1000000001' }]
+      }
+    };
+    if (path.startsWith('/marketplace/items/MCO')) return {
+      ok: true, status: 200, payload: {
+        id: 'MCO1000000001', site_id: 'MCO', user_product_id: 'MCOU123456'
+      }
+    };
+    if (path === '/user-products/MCOU123456') return {
+      ok: true, status: 200, payload: {
+        id: 'MCOU123456', family_id: '99887766', family_name: 'Synthetic organizer'
+      }
+    };
+    return { ok: false, status: 404, payload: {} };
+  };
+
+  const result = await service.inspectItem('account-1', 'CBT1000000000');
+
+  assert.ok(calls.includes('/user-products/MCOU123456'));
+  assert.equal(result.globalItem.familyId, '99887766');
+  assert.equal(result.userProduct.familyId, '99887766');
+  assert.equal(result.lookups.userProduct, 'ok');
+});
+
+test('CBT item inspection accepts site_items represented as a site-keyed object', async () => {
+  const service = new MercadoLibreOAuthService({
+    config: {},
+    pool: { async query() { return { rowCount: 1, rows: [{ meli_user_id: '1000000000' }] }; } },
+    cipher: {}, apiClient: {}
+  });
+  service.authenticatedRequest = async (_accountId, path) => {
+    if (path.startsWith('/marketplace/items/CBT')) return {
+      ok: true, status: 200, payload: {
+        id: 'CBT1000000000', site_id: 'CBT', owner_id: 1000000000, seller_id: 1000000000,
+        site_items: { MLC: 'MLC1000000002', MCO: { item_id: 'MCO1000000001' } }
+      }
+    };
+    if (path.startsWith('/marketplace/items/MCO')) return {
+      ok: true, status: 200, payload: { id: 'MCO1000000001', siteless_family_id: '99887766' }
+    };
+    return { ok: false, status: 404, payload: {} };
+  };
+
+  const result = await service.inspectItem('account-1', 'CBT1000000000');
+  assert.equal(result.globalItem.familyId, '99887766');
 });

@@ -1,6 +1,6 @@
 # AI content studio
 
-Version 0.6 adds an optional AI layer. Product creation, manual facts, image upload, listing editing, pricing and preflight continue to work when `AI_PROVIDER=disabled`.
+The AI layer is optional. Product creation, manual facts, image upload, listing editing, category confirmation, pricing and preflight continue to work when `AI_PROVIDER=disabled`.
 
 ## Safety and precedence
 
@@ -61,14 +61,18 @@ Expected health fields after configuration:
 
 ## Operator flow
 
-1. Create a product manually and add all variants.
+1. Create a product, choose either **new product** or **add variants to an existing Family**, and add every intended variant.
 2. Open **AI 内容工作台**.
 3. Optionally type manual facts and upload several product images.
 4. Select only the images that the model should inspect and run analysis.
 5. Review AI suggestions, copy acceptable values into the confirmation area, edit and save.
-6. Save category IDs in the normal review page if known.
-7. Generate three-country copy; review and save each site independently.
-8. Generate the image plan, choose a real product reference and generate drafts one by one.
-9. Inspect structure, color and dimensions before associating an image with a variant.
+6. Run the three-site category assessment. AI creates a local Spanish search term for each selected site; Mercado Libre supplies the candidates and current variation attributes.
+7. Confirm one category for each site. Candidates are shortcuts rather than a whitelist: an operator may enter another same-site category ID, which is accepted only after official metadata validation.
+8. Check that every real variation axis (for example `COLOR` and `SIZE`) is allowed. A changed variant set or changed listing category makes the decision stale and requires confirmation again.
+9. Generate three-country copy; review and save each site independently.
+10. Generate the image plan, choose a real product reference and generate drafts one by one.
+11. Inspect structure, color and dimensions before associating an image with a variant.
+
+For a single-specification product, category confirmation is still required but variation support is not. For a multi-specification product, all selected MLM/MCO/MLC categories must support every varying attribute before copy generation or publication preflight can pass. Remote preflight repeats the check against current local and CBT category metadata, so an old saved result cannot override a later platform change.
 
 Every chargeable AI request carries a browser-generated idempotency key and is recorded in `ai_generations` without storing credentials or raw image bytes.

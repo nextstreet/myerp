@@ -62,6 +62,33 @@ export function toSitelessUserProductId(value) {
   return match ? `U${match[1]}` : null;
 }
 
+function itemFamilyId(item) {
+  return item?.siteless_family_id ?? item?.family_id ?? item?.family?.id ?? null;
+}
+
+function marketplaceChildIds(item) {
+  const raw = Array.isArray(item?.site_items)
+    ? item.site_items
+    : item?.site_items && typeof item.site_items === 'object'
+      ? Object.entries(item.site_items).map(([siteId, value]) => (
+          typeof value === 'string' ? { site_id: siteId, item_id: value } : { site_id: siteId, ...value }
+        ))
+      : [];
+  const preferredSites = new Map([['MCO', 0], ['MLC', 1], ['MLM', 2]]);
+  const seen = new Set();
+  return raw
+    .map((entry) => ({
+      id: String(typeof entry === 'string'
+        ? entry
+        : entry?.item_id ?? entry?.id ?? entry?.site_item_id ?? '').toUpperCase(),
+      siteId: typeof entry === 'string'
+        ? String(entry).slice(0, 3).toUpperCase()
+        : String(entry?.site_id ?? '').toUpperCase()
+    }))
+    .filter(({ id }) => /^(MLM|MCO|MLC)\d+$/.test(id) && !seen.has(id) && seen.add(id))
+    .sort((left, right) => (preferredSites.get(left.siteId) ?? 99) - (preferredSites.get(right.siteId) ?? 99));
+}
+
 export function normalizeItemInspection({ item, globalItem, description, userProduct, userProductStatus }) {
   return {
     item: {
@@ -84,6 +111,7 @@ export function normalizeItemInspection({ item, globalItem, description, userPro
       soldQuantity: item.sold_quantity ?? null,
       permalink: item.permalink ?? null,
       userProductId: item.user_product_id ?? null,
+      familyId: itemFamilyId(item),
       familyName: item.family_name ?? null,
       sellerCustomField: item.seller_custom_field ?? null,
       attributes: compactAttributes(item.attributes),
@@ -104,8 +132,9 @@ export function normalizeItemInspection({ item, globalItem, description, userPro
     globalItem: globalItem ? {
       id: globalItem.id ?? null,
       categoryId: globalItem.category_id ?? null,
-      familyId: globalItem.family_id ?? null,
+      familyId: itemFamilyId(globalItem),
       familyName: globalItem.family_name ?? null,
+      sellerCustomField: globalItem.seller_custom_field ?? null,
       sitelessUserProductId: globalItem.siteless_user_product_id
         ?? toSitelessUserProductId(globalItem.parent_user_product_id ?? globalItem.user_product_id),
       parentUserProductId: globalItem.parent_user_product_id ?? null,
@@ -119,7 +148,7 @@ export function normalizeItemInspection({ item, globalItem, description, userPro
     userProduct: userProduct ? {
       id: userProduct.id ?? null,
       status: userProduct.status ?? null,
-      familyId: userProduct.family_id ?? null,
+      familyId: itemFamilyId(userProduct),
       familyName: userProduct.family_name ?? null,
       attributes: compactAttributes(userProduct.attributes),
       pictures: compactPictures(userProduct.pictures),
@@ -455,7 +484,46 @@ export class MercadoLibreOAuthService {
         `/marketplace/items/${encodeURIComponent(cbtItemId)}?include_attributes=all`
       );
     }
-    const globalItem = globalItemResponse?.ok ? globalItemResponse.payload : (item.site_id === 'CBT' ? item : null);
+    let globalItem = globalItemResponse?.ok ? globalItemResponse.payload : (item.site_id === 'CBT' ? item : null);
+    // Some Global Selling accounts omit the Siteless Family ID from the CBT
+    // parent response while exposing it on a marketplace child listed in
+    // `site_items`. Resolve it through provider-supplied child IDs only; this
+    // remains a read-only lookup and never searches another seller's catalog.
+    let familyUserProduct = null;
+    let familyUserProductId = item.user_product_id ?? null;
+    if (globalItem && !itemFamilyId(globalItem) && !itemFamilyId(item)) {
+      for (const child of marketplaceChildIds(globalItem)) {
+        if (child.id === item.id) continue;
+        const childResponse = await this.authenticatedRequest(
+          accountId,
+          `/marketplace/items/${encodeURIComponent(child.id)}?include_attributes=all`
+        );
+        if (!childResponse.ok) continue;
+        familyUserProductId ??= childResponse.payload?.user_product_id ?? null;
+        if (itemFamilyId(childResponse.payload)) {
+          globalItem = {
+            ...globalItem,
+            siteless_family_id: itemFamilyId(childResponse.payload),
+            family_name: globalItem.family_name ?? childResponse.payload.family_name ?? null
+          };
+          break;
+        }
+      }
+    }
+    if (globalItem && !itemFamilyId(globalItem) && !itemFamilyId(item) && familyUserProductId) {
+      const userProductResponse = await this.authenticatedRequest(
+        accountId,
+        `/user-products/${encodeURIComponent(familyUserProductId)}`
+      );
+      if (userProductResponse.ok && itemFamilyId(userProductResponse.payload)) {
+        familyUserProduct = userProductResponse.payload;
+        globalItem = {
+          ...globalItem,
+          siteless_family_id: itemFamilyId(userProductResponse.payload),
+          family_name: globalItem.family_name ?? userProductResponse.payload.family_name ?? null
+        };
+      }
+    }
     // The Global Selling user-product resource supports writes, but a detail
     // GET is not available for every account mode (it returns HTTP 405 for
     // standard CBT sellers). Family/category facts that are readable are
@@ -472,8 +540,10 @@ export class MercadoLibreOAuthService {
       item,
       globalItem,
       description,
-      userProduct: null,
-      userProductStatus: sitelessUserProductId
+      userProduct: familyUserProduct,
+      userProductStatus: familyUserProduct
+        ? 'ok'
+        : sitelessUserProductId
         ? 'not_exposed_by_item_read_api'
         : 'not_applicable'
     });
