@@ -14,14 +14,23 @@ import {
   validateListingDrafts,
   whiteBackgroundPrompt
 } from '../domain/ai-studio.js';
+import {
+  CATEGORY_ASSESSMENT_SITES,
+  assessVariationSupport,
+  categoryQueryPrompt,
+  sameVariantAxes,
+  variantAxes,
+  validateCategoryQueryPlan
+} from '../domain/category-assessment.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
-function problem(message, code = 'validation_error', statusCode = 400) {
+function problem(message, code = 'validation_error', statusCode = 400, details) {
   const error = new Error(message);
   error.code = code;
   error.statusCode = statusCode;
+  error.details = details;
   return error;
 }
 
@@ -31,6 +40,9 @@ function requireRequestKey(value) {
 }
 
 function productRow(row, variants) {
+  const targetSites = Array.isArray(row.target_sites)
+    ? row.target_sites
+    : String(row.target_sites ?? '').replace(/^\{|\}$/g, '').split(',').map((site) => site.trim()).filter(Boolean);
   return {
     id: row.id,
     originalTitle: row.original_title,
@@ -41,7 +53,7 @@ function productRow(row, variants) {
     packageDimensions: row.package_dimensions,
     rawAttributes: row.raw_attributes,
     notes: row.notes,
-    targetSites: row.target_sites,
+    targetSites,
     variants: variants.map((variant) => ({
       id: variant.id,
       sellerSku: variant.seller_sku,
@@ -49,7 +61,8 @@ function productRow(row, variants) {
       size: variant.size,
       otherAttributes: variant.other_attributes,
       purchasePriceCny: variant.purchase_price_cny === null ? null : Number(variant.purchase_price_cny),
-      packedWeightG: variant.packed_weight_g
+      packedWeightG: variant.packed_weight_g,
+      participateInPublish: variant.participate_in_publish
     }))
   };
 }
@@ -188,15 +201,54 @@ async function categoryRequirements(app, productId, accountId) {
   return app.mercadoLibreOAuth.categoryRequirements(accountId, categoryIds);
 }
 
+async function categoryAssessments(app, productId) {
+  const result = await app.db.query(`
+    SELECT site,search_query,ai_rationale,candidates,selected_category_id,selected_category_name,
+      variation_attributes,required_variant_axes,missing_variant_axes,supports_variations,
+      status,checked_at,confirmed_at
+    FROM product_category_assessments WHERE product_id=$1 ORDER BY site
+  `, [productId]);
+  return result.rows.map((row) => ({
+    site: row.site,
+    searchQuery: row.search_query,
+    aiRationale: row.ai_rationale,
+    candidates: row.candidates ?? [],
+    selectedCategoryId: row.selected_category_id,
+    selectedCategoryName: row.selected_category_name,
+    variationAttributes: row.variation_attributes ?? [],
+    requiredVariantAxes: row.required_variant_axes ?? [],
+    missingVariantAxes: row.missing_variant_axes ?? [],
+    supportsVariations: row.supports_variations,
+    status: row.status,
+    checkedAt: row.checked_at,
+    confirmedAt: row.confirmed_at
+  }));
+}
+
+function assessmentReadiness(rows, selectedSites, variants) {
+  const isMultiVariant = variants.filter((variant) => variant.participateInPublish !== false).length > 1;
+  const currentAxes = variantAxes(variants);
+  const bySite = new Map(rows.map((row) => [row.site, row]));
+  const missingSites = selectedSites.filter((site) => !bySite.has(site) || !['confirmed', 'unsupported'].includes(bySite.get(site).status));
+  const staleSites = selectedSites.filter((site) => bySite.has(site)
+    && !sameVariantAxes(bySite.get(site).requiredVariantAxes, currentAxes));
+  const unsupportedSites = isMultiVariant
+    ? selectedSites.filter((site) => bySite.get(site)?.supportsVariations !== true)
+    : [];
+  return { ready: !missingSites.length && !unsupportedSites.length && !staleSites.length,
+    isMultiVariant, requiredVariantAxes: currentAxes, missingSites, staleSites, unsupportedSites };
+}
+
 export async function aiStudioRoutes(app) {
   app.get('/products/:productId/workspace', async (request) => {
     const product = await loadProduct(app, request.params.productId);
-    const [sheet, generations] = await Promise.all([
+    const [sheet, generations, assessments] = await Promise.all([
       factSheet(app, request.params.productId),
       app.db.query(`
         SELECT id,generation_type,provider,model,output,status,error_code,error_message,selected_media_ids,created_at,completed_at
         FROM ai_generations WHERE product_id=$1 ORDER BY created_at DESC LIMIT 30
-      `, [request.params.productId])
+      `, [request.params.productId]),
+      categoryAssessments(app, request.params.productId)
     ]);
     return {
       provider: {
@@ -210,6 +262,8 @@ export async function aiStudioRoutes(app) {
         manualFacts: sheet.manualFacts,
         confirmedFacts: sheet.confirmedFacts
       }),
+      categoryAssessments: assessments,
+      categoryReadiness: assessmentReadiness(assessments, product.targetSites, product.variants),
       generations: generations.rows
     };
   });
@@ -269,6 +323,127 @@ export async function aiStudioRoutes(app) {
     }
   });
 
+  app.post('/products/:productId/category-assessment', async (request) => {
+    const requestKey = requireRequestKey(request.body?.requestKey);
+    const accountId = String(request.body?.accountId ?? '').trim();
+    if (!accountId || !app.mercadoLibreOAuth) throw problem('A connected Mercado Libre account is required', 'meli_account_required');
+    const product = await loadProduct(app, request.params.productId);
+    const selectedSites = product.targetSites.filter((site) => CATEGORY_ASSESSMENT_SITES.includes(site));
+    const sheet = await factSheet(app, request.params.productId);
+    const facts = generationFacts({
+      baseFacts: productBaseFacts(product), manualFacts: sheet.manualFacts, confirmedFacts: sheet.confirmedFacts
+    });
+    const start = await beginGeneration(app, {
+      productId: request.params.productId, type: 'category_assessment', requestKey,
+      inputSummary: { selectedSites, variantCount: product.variants.filter((variant) => variant.participateInPublish !== false).length }
+    });
+    if (start.existing) return { generationId: start.id, ...start.existing, reused: true };
+    try {
+      const plan = validateCategoryQueryPlan(await app.aiProvider.generateJson({
+        ...categoryQueryPrompt({ facts, selectedSites })
+      }), selectedSites);
+      const discoveries = [];
+      for (const site of selectedSites) {
+        discoveries.push(await app.mercadoLibreOAuth.discoverCategories(accountId, {
+          query: plan.sites[site].query, sites: [site], limit: 5
+        }));
+      }
+      const selectedCategoryIds = discoveries.map((discovery) => discovery.results[0]?.suggestions[0]?.categoryId).filter(Boolean);
+      const requirements = selectedCategoryIds.length
+        ? await app.mercadoLibreOAuth.categoryRequirements(accountId, selectedCategoryIds)
+        : { ok: false, categories: [] };
+      const results = [];
+      for (let index = 0; index < selectedSites.length; index += 1) {
+        const site = selectedSites[index];
+        const discovery = discoveries[index].results[0];
+        const candidates = discovery?.suggestions ?? [];
+        const selected = candidates[0] ?? null;
+        const metadata = requirements.categories.find((category) => category.categoryId === selected?.categoryId);
+        const variation = assessVariationSupport(product.variants, metadata?.variationAttributes ?? []);
+        const status = !discovery?.ok || !selected || !metadata?.ok ? 'lookup_failed' : 'suggested';
+        await app.db.query(`
+          INSERT INTO product_category_assessments (
+            product_id,site,search_query,ai_rationale,candidates,selected_category_id,
+            selected_category_name,variation_attributes,required_variant_axes,
+            missing_variant_axes,supports_variations,status,checked_at,confirmed_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),NULL)
+          ON CONFLICT (product_id,site) DO UPDATE SET
+            search_query=EXCLUDED.search_query,ai_rationale=EXCLUDED.ai_rationale,
+            candidates=EXCLUDED.candidates,selected_category_id=EXCLUDED.selected_category_id,
+            selected_category_name=EXCLUDED.selected_category_name,
+            variation_attributes=EXCLUDED.variation_attributes,
+            required_variant_axes=EXCLUDED.required_variant_axes,
+            missing_variant_axes=EXCLUDED.missing_variant_axes,
+            supports_variations=EXCLUDED.supports_variations,status=EXCLUDED.status,
+            checked_at=now(),confirmed_at=NULL
+        `, [request.params.productId, site, plan.sites[site].query, plan.sites[site].rationale,
+          JSON.stringify(candidates), selected?.categoryId ?? null, selected?.categoryName ?? null,
+          JSON.stringify(metadata?.variationAttributes ?? []), JSON.stringify(variation.requiredAxes),
+          JSON.stringify(variation.missingAxes), variation.supported, status]);
+        results.push({ site, query: plan.sites[site].query, rationale: plan.sites[site].rationale,
+          candidates, selectedCategoryId: selected?.categoryId ?? null, selectedCategoryName: selected?.categoryName ?? null,
+          variationAttributes: metadata?.variationAttributes ?? [], ...variation, status });
+      }
+      const output = { assessments: results };
+      await completeGeneration(app, start.id, output);
+      return { generationId: start.id, ...output };
+    } catch (error) {
+      await failGeneration(app, start.id, error);
+      throw error;
+    }
+  });
+
+  app.put('/products/:productId/category-assessment/:site', async (request) => {
+    const site = String(request.params.site ?? '').toUpperCase();
+    const accountId = String(request.body?.accountId ?? '').trim();
+    const categoryId = String(request.body?.categoryId ?? '').trim().toUpperCase();
+    if (!CATEGORY_ASSESSMENT_SITES.includes(site) || !accountId || !categoryId) {
+      throw problem('site, accountId and categoryId are required');
+    }
+    const product = await loadProduct(app, request.params.productId);
+    const current = await app.db.query(
+      'SELECT * FROM product_category_assessments WHERE product_id=$1 AND site=$2',
+      [request.params.productId, site]
+    );
+    if (!categoryId.startsWith(site)) throw problem('The category ID must belong to the selected site', 'category_site_mismatch');
+    const candidates = current.rows[0]?.candidates ?? [];
+    // AI candidates are shortcuts, not a whitelist. A human may enter any
+    // category in the correct site namespace; official metadata below remains
+    // the source of truth for existence and variation support.
+    const selected = candidates.find((candidate) => candidate.categoryId === categoryId)
+      ?? { categoryId, categoryName: null };
+    const requirements = await app.mercadoLibreOAuth.categoryRequirements(accountId, [categoryId]);
+    const metadata = requirements.categories[0];
+    if (!metadata?.ok) throw problem('Mercado Libre category metadata lookup failed', 'category_metadata_lookup_failed', 502);
+    const variation = assessVariationSupport(product.variants, metadata.variationAttributes);
+    const status = variation.isMultiVariant && !variation.supported ? 'unsupported' : 'confirmed';
+    await app.db.query(`
+      INSERT INTO product_category_assessments (
+        product_id,site,search_query,ai_rationale,candidates,selected_category_id,
+        selected_category_name,variation_attributes,required_variant_axes,
+        missing_variant_axes,supports_variations,status,checked_at,confirmed_at
+      ) VALUES ($1,$2,$3,NULL,$4,$5,$6,$7,$8,$9,$10,$11,now(),now())
+      ON CONFLICT (product_id,site) DO UPDATE SET
+        selected_category_id=EXCLUDED.selected_category_id,
+        selected_category_name=EXCLUDED.selected_category_name,
+        variation_attributes=EXCLUDED.variation_attributes,
+        required_variant_axes=EXCLUDED.required_variant_axes,
+        missing_variant_axes=EXCLUDED.missing_variant_axes,
+        supports_variations=EXCLUDED.supports_variations,status=EXCLUDED.status,
+        checked_at=now(),confirmed_at=now()
+    `, [request.params.productId, site, current.rows[0]?.search_query ?? `manual:${categoryId}`,
+      JSON.stringify(candidates.length ? candidates : [selected]), categoryId, selected.categoryName ?? null,
+      JSON.stringify(metadata.variationAttributes), JSON.stringify(variation.requiredAxes),
+      JSON.stringify(variation.missingAxes), variation.supported, status]);
+    await app.db.query(`
+      INSERT INTO listings (product_id,site,category_id,currency)
+      VALUES ($1,$2,$3,'USD')
+      ON CONFLICT (product_id,site) DO UPDATE SET category_id=EXCLUDED.category_id
+    `, [request.params.productId, site, categoryId]);
+    return { ok: status === 'confirmed', site, categoryId, categoryName: selected.categoryName ?? null,
+      variationAttributes: metadata.variationAttributes, ...variation, status };
+  });
+
   app.post('/products/:productId/listing-drafts', async (request) => {
     const requestKey = requireRequestKey(request.body?.requestKey);
     const selectedSites = request.body?.selectedSites ?? AI_STUDIO_SITES;
@@ -276,6 +451,12 @@ export async function aiStudioRoutes(app) {
       throw problem('selectedSites contains an unsupported site');
     }
     const product = await loadProduct(app, request.params.productId);
+    const assessments = await categoryAssessments(app, request.params.productId);
+    const readiness = assessmentReadiness(assessments, selectedSites, product.variants);
+    if (!readiness.ready) {
+      throw problem('Confirm a variation-compatible category for every selected site before AI copy generation',
+        'category_assessment_not_ready', 422, readiness);
+    }
     const sheet = await factSheet(app, request.params.productId);
     const requirements = await categoryRequirements(app, request.params.productId, request.body?.accountId);
     const start = await beginGeneration(app, {

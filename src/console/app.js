@@ -11,7 +11,7 @@ const sites = [
 const statusLabels = {
   pending_import: '待导入', pending_ai: '待AI处理', ai_processing: 'AI处理中',
   pending_review: '待审核', pending_publish: '待发布', publishing: '发布中',
-  published: '已发布', publish_failed: '发布失败', paused: '已暂停'
+  published: '已发布', publish_failed: '发布失败', reconciliation_required: '平台已受理·待对账', paused: '已暂停'
 };
 const $ = (id) => document.getElementById(id);
 
@@ -91,7 +91,7 @@ function button(label, className, handler) {
 
 function statusPill(status) {
   const node = document.createElement('span');
-  node.className = `status-pill ${status === 'published' ? 'good' : status === 'publish_failed' ? 'bad' : ''}`;
+  node.className = `status-pill ${status === 'published' ? 'good' : ['publish_failed', 'reconciliation_required'].includes(status) ? 'bad' : ''}`;
   node.textContent = statusLabels[status] || status;
   return node;
 }
@@ -261,11 +261,12 @@ async function createProduct(event) {
       purchasePriceCny: Number(data.get('purchasePriceCny')), packedWeightG: Number(data.get('packedWeightG')),
       productDimensions: data.get('productSize') ? { text: data.get('productSize') } : {},
       packageDimensions: data.get('packageSize') ? { text: data.get('packageSize') } : {},
-      rawAttributes, notes: data.get('notes') || null, targetSites: ['MLM', 'MCO', 'MLC'], variants
+      rawAttributes, notes: data.get('notes') || null, targetSites: ['MLM', 'MCO', 'MLC'], variants,
+      workflowType: data.get('workflowType') || 'new_product'
     }) });
     toast(`产品已创建，保留 ${result.variantCount} 个规格`);
     event.currentTarget.reset(); $('importVariantsBody').replaceChildren(); addImportVariant();
-    await loadProducts(); openReview(result.id);
+    await loadProducts(); openAi(result.id);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -319,6 +320,7 @@ async function loadAiWorkspace(productId) {
     $('aiEmpty').classList.add('hidden'); $('aiContent').classList.remove('hidden');
     $('aiProductName').textContent = product.originalTitle;
     $('aiProductMeta').textContent = `${product.internalCode} · ${product.variants.length} 个规格 · ${product.targetSites.join(' / ')}`;
+    $('aiWorkflowType').value = product.workflowType || 'new_product';
     $('aiFactRevision').textContent = `版本 ${workspace.factSheet.revision}`;
     $('manualFacts').value = pretty(workspace.factSheet.manualFacts);
     $('aiSuggestions').value = pretty(workspace.factSheet.aiSuggestions);
@@ -329,10 +331,13 @@ async function loadAiWorkspace(productId) {
       ? `${provider.name}${provider.imageGenerationConfigured ? ' · 文案+图片' : ' · 仅文案'}` : 'AI未配置 · 可手工使用';
     $('aiProviderBadge').className = `status-pill ${provider.configured ? 'good' : 'warn'}`;
     $('runAiAnalysis').disabled = !provider.configured;
-    $('generateAiCopy').disabled = !provider.configured;
+    $('runCategoryAssessment').disabled = !provider.configured;
+    $('generateAiCopy').disabled = !provider.configured || !workspace.categoryReadiness?.ready;
+    $('generateAiCopy').title = workspace.categoryReadiness?.ready
+      ? '' : '请先确认三个站点均支持当前规格轴的类目';
     $('generateImagePlan').disabled = !provider.configured;
     $('generateWhiteBackground').disabled = !provider.imageGenerationConfigured;
-    renderAiMedia(); renderAiJobs();
+    renderAiMedia(); renderCategoryAssessments(workspace.categoryAssessments); renderAiJobs();
     const copy = workspace.generations.find((item) => item.generation_type === 'listing_copy' && item.status === 'completed');
     const plan = workspace.generations.find((item) => item.generation_type === 'image_plan' && item.status === 'completed');
     state.aiDrafts = copy?.output ?? null; state.aiImagePlan = plan?.output ?? null;
@@ -409,6 +414,77 @@ async function runAiAnalysis() {
       });
     });
     toast('AI事实建议已生成，请人工确认'); await loadAiWorkspace(state.aiProduct.id); await loadProducts();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function saveWorkflowType() {
+  if (!state.aiProduct) return;
+  try {
+    const workflowType = $('aiWorkflowType').value;
+    await api(`/api/products/${state.aiProduct.id}`, {
+      method: 'PATCH', body: JSON.stringify({ workflowType })
+    });
+    toast(workflowType === 'add_variants' ? '已设为：既有 Family 增加规格' : '已设为：新商品上架');
+    await loadProducts(); await loadAiWorkspace(state.aiProduct.id);
+  } catch (error) { toast(error.message, true); }
+}
+
+function renderCategoryAssessments(rows = []) {
+  const container = $('categoryAssessmentGrid'); container.replaceChildren();
+  const bySite = new Map(rows.map((row) => [row.site, row]));
+  for (const site of sites) {
+    const row = bySite.get(site.id);
+    const card = document.createElement('article'); card.className = 'panel category-assessment-card';
+    const head = document.createElement('div'); head.className = 'country-head';
+    const title = document.createElement('h4'); title.textContent = site.name;
+    const badge = document.createElement('span'); badge.className = `status-pill ${row?.status === 'confirmed' ? 'good' : row?.status === 'unsupported' ? 'bad' : ''}`;
+    badge.textContent = row?.status === 'confirmed' ? '类目已确认' : row?.status === 'unsupported' ? '不支持当前多规格' : row ? '待确认' : '尚未分析';
+    head.append(title, badge); card.append(head);
+    if (!row) {
+      const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '可运行AI类目分析，或手工填写类目ID后读取官方属性。';
+      const manual = input('text'); manual.placeholder = `${site.id} 类目 ID`;
+      const confirmManual = button('手工校验该站类目', 'button secondary wide', () => confirmCategoryAssessment(site.id, manual.value.trim().toUpperCase(), confirmManual));
+      card.append(empty, manual, confirmManual); container.append(card); continue;
+    }
+    const query = document.createElement('small'); query.className = 'muted'; query.textContent = `AI搜索词：${row.searchQuery}`; card.append(query);
+    const select = document.createElement('select');
+    (row.candidates || []).forEach((candidate) => select.append(option(candidate.categoryId, `${candidate.categoryId} · ${candidate.categoryName}`)));
+    if (row.selectedCategoryId) select.value = row.selectedCategoryId; card.append(select);
+    const meta = document.createElement('div'); meta.className = 'assessment-meta';
+    for (const label of [
+      `规格轴：${(row.requiredVariantAxes || []).join(', ') || '单规格'}`,
+      `允许：${(row.variationAttributes || []).map((item) => item.id).join(', ') || '无'}`,
+      `缺失：${(row.missingVariantAxes || []).join(', ') || '无'}`
+    ]) { const chip = document.createElement('span'); chip.className = 'step-chip'; chip.textContent = label; meta.append(chip); }
+    card.append(meta);
+    const confirm = button('确认该站类目', 'button primary wide', () => confirmCategoryAssessment(site.id, select.value, confirm));
+    confirm.disabled = !select.value;
+    const manual = input('text'); manual.placeholder = `也可输入其他 ${site.id} 官方类目 ID`;
+    const confirmManual = button('校验人工类目', 'button secondary wide', () => confirmCategoryAssessment(site.id, manual.value.trim().toUpperCase(), confirmManual));
+    card.append(confirm, manual, confirmManual); container.append(card);
+  }
+}
+
+async function runCategoryAssessment() {
+  if (!state.aiProduct) return;
+  try {
+    const id = await accountId();
+    await withBusy($('runCategoryAssessment'), '正在读取三区类目…', () => api(`/api/ai/products/${state.aiProduct.id}/category-assessment`, {
+      method: 'POST', body: JSON.stringify({ accountId: id, requestKey: crypto.randomUUID() })
+    }));
+    toast('已生成官方类目候选，请逐站确认'); await loadAiWorkspace(state.aiProduct.id);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function confirmCategoryAssessment(site, categoryId, control) {
+  if (!categoryId) return;
+  try {
+    const id = await accountId();
+    const result = await withBusy(control, '校验中…', () => api(`/api/ai/products/${state.aiProduct.id}/category-assessment/${site}`, {
+      method: 'PUT', body: JSON.stringify({ accountId: id, categoryId })
+    }));
+    toast(result.ok ? `${site} 类目已确认` : `${site} 类目不支持当前规格轴`, !result.ok);
+    await loadAiWorkspace(state.aiProduct.id);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -824,7 +900,18 @@ async function markPendingPublish() {
 
 async function preparePublish() {
   if (!state.products.length) await loadProducts();
+  syncPublishWorkflow();
   if ($('publishProductSelect').value) await loadJobs();
+}
+
+function syncPublishWorkflow() {
+  const product = state.products.find((item) => item.id === $('publishProductSelect').value);
+  const update = product?.workflowType === 'add_variants';
+  $('familyPublishMode').value = update ? 'update' : 'create';
+  $('publishFlowCreate').classList.toggle('active', !update);
+  $('publishFlowUpdate').classList.toggle('active', update);
+  $('existingFamilyTargetPanel').classList.toggle('hidden', !update);
+  invalidatePublishPreview();
 }
 
 function selectedPublishSites() {
@@ -862,6 +949,7 @@ function renderPreflight(data) {
     ...(local.errors || []),
     ...(local.warnings || []).map((item) => ({ ...item, warning: true })),
     ...(data.remoteErrors || []),
+    ...(data.remoteWarnings || []).map((item) => ({ ...item, warning: true })),
     ...(data.missingRequiredAttributes || []).map((item) => ({
       ...item,
       code: item.categoryId?.startsWith('CBT') ? 'missing_cbt_attribute' : 'missing_local_calibration_attribute',
@@ -985,6 +1073,8 @@ $('copyAiToConfirmed').addEventListener('click', () => {
   } catch (error) { toast(error.message, true); }
 });
 $('runAiAnalysis').addEventListener('click', runAiAnalysis);
+$('saveWorkflowType').addEventListener('click', saveWorkflowType);
+$('runCategoryAssessment').addEventListener('click', runCategoryAssessment);
 $('generateAiCopy').addEventListener('click', generateAiCopy);
 $('generateImagePlan').addEventListener('click', generateImagePlan);
 $('generateWhiteBackground').addEventListener('click', generateWhiteBackground);
@@ -992,7 +1082,7 @@ $('reviewProductSelect').addEventListener('change', (event) => loadReview(event.
 $('uploadMedia').addEventListener('click', uploadMedia); $('discoverCategories').addEventListener('click', discoverCategories); $('markPendingPublish').addEventListener('click', markPendingPublish);
 $('inspectExistingItems').addEventListener('click', inspectExistingItems);
 $('calculateQuotes').addEventListener('click', calculateQuotes);
-$('publishProductSelect').addEventListener('change', () => { document.querySelectorAll('input[name="publishSite"]').forEach((input) => { input.checked = false; }); invalidatePublishPreview(); loadJobs(); });
+$('publishProductSelect').addEventListener('change', () => { document.querySelectorAll('input[name="publishSite"]').forEach((input) => { input.checked = false; }); syncPublishWorkflow(); loadJobs(); });
 for (const id of ['familyPublishMode', 'existingFamilyItemId']) $(id).addEventListener('change', invalidatePublishPreview);
 document.querySelectorAll('input[name="publishSite"]').forEach((input) => input.addEventListener('change', invalidatePublishPreview));
 $('runLocalPreflight').addEventListener('click', runLocalPreflight); $('runRemotePreflight').addEventListener('click', runRemotePreflight); $('refreshJobs').addEventListener('click', loadJobs);

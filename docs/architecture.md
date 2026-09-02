@@ -38,6 +38,17 @@ The internal UP draft intentionally does not pretend to be the final Mercado Lib
 9. v0.3 remote preflight performs authenticated GET requests only and records summaries, never tokens or full credentials.
 10. AI suggestions remain isolated until explicitly copied and saved by a human.
 11. Generated images remain `pending` and are never auto-associated or published.
+12. Product workflow is persisted as `new_product` or `add_variants`; it determines POST/create versus PUT/update and cannot be overridden by a conflicting browser parameter.
+13. Multi-variant copy generation and publication require a confirmed local category for every selected site and official support for every actual variation axis.
+
+## Category and workflow decision gate
+
+- AI may convert the effective product facts into one local Spanish category-search query per target site. It never declares a category authoritative.
+- Candidate IDs and variation attributes come from the authenticated Mercado Libre APIs. An operator can choose a suggestion or type another same-site category ID; both paths perform the same official metadata lookup.
+- `product_category_assessments` stores the selected category, official variation attributes and the exact variant axes present at confirmation time.
+- Adding/removing a varying color, size or other attribute makes an older assessment stale. Editing a listing to a different category also makes it stale.
+- Local preflight requires the saved decision. Remote preflight re-fetches MLM/MCO/MLC and CBT metadata and blocks unsupported axes or metadata lookup failures.
+- The two publication workflows share validation and media infrastructure, but their mutation targets remain separate: `new_product` creates a Family; `add_variants` updates one resolved existing Family.
 
 ## v0.6 AI content boundary
 
@@ -63,7 +74,9 @@ The internal UP draft intentionally does not pretend to be the final Mercado Lib
 - `global_net_proceeds` belongs to the UP root. The independent MLM/MCO/MLC price calculations remain review forecasts and are never silently substituted for this provider field.
 - Family creation sends English `family_name`, CBT category/attributes, stock, English description, uploaded picture IDs and `sites_to_sell`. It does not send a `title` or `variations` field.
 - Returned `siteless_family_id`, CBT Item, Siteless UP and site Item identifiers are persisted separately.
-- An accepted response with incomplete identifiers is saved as far as possible and moves the product into reconciliation-required failure handling. A new Family request is blocked to prevent duplicates.
+- Existing-Family mode resolves the Family ID from owned CBT/local Item fields, provider-advertised `site_items`, then the child User Product detail. A local MCO/MLC/MLM category is never treated as proof of a CBT category mismatch.
+- An existing provider-read Family name is preserved during incremental updates; adding variants cannot silently rename the Family.
+- An accepted response with mixed results or incomplete identifiers is saved as far as possible and moves the product into the explicit `reconciliation_required` state. A new Family request is blocked to prevent duplicates.
 
 ## v0.4 listing-readiness boundary
 

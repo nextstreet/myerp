@@ -5,7 +5,7 @@ import { mergeReviewFields, updateConfirmations } from '../domain/review-merge.j
 const SITE_CODES = new Set(['MLM', 'MCO', 'MLC']);
 const STATUSES = new Set([
   'pending_import', 'pending_ai', 'ai_processing', 'pending_review',
-  'pending_publish', 'publishing', 'published', 'publish_failed', 'paused'
+  'pending_publish', 'publishing', 'published', 'publish_failed', 'reconciliation_required', 'paused'
 ]);
 const PRODUCT_REVIEW_FIELDS = [
   'sourceUrl', 'originalTitle', 'categoryHint', 'purchasePriceCny', 'packedWeightG',
@@ -21,6 +21,7 @@ const LISTING_REVIEW_FIELDS = [
   'currency', 'targetProfitUsd', 'targetMarginRate', 'pricingBasis'
 ];
 const SITE_CURRENCIES = Object.freeze({ MLM: 'USD', MCO: 'USD', MLC: 'USD' });
+const WORKFLOW_TYPES = new Set(['new_product', 'add_variants']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function badRequest(message, details) {
@@ -40,8 +41,9 @@ function validateProduct(body) {
   if (!Number.isInteger(Number(body?.packedWeightG)) || Number(body.packedWeightG) <= 0) errors.push('packedWeightG must be a positive integer');
   const targetSites = body?.targetSites ?? ['MLM', 'MCO', 'MLC'];
   if (!Array.isArray(targetSites) || targetSites.some((site) => !SITE_CODES.has(site))) errors.push('targetSites contains an unsupported site');
-  const variants = body?.variants ?? [];
-  if (!Array.isArray(variants)) errors.push('variants must be an array');
+  const variants = Array.isArray(body?.variants) ? body.variants : [];
+  if (!WORKFLOW_TYPES.has(body?.workflowType ?? 'new_product')) errors.push('workflowType must be new_product or add_variants');
+  if (!Array.isArray(body?.variants ?? [])) errors.push('variants must be an array');
   const skus = variants.map((item) => String(item.sellerSku ?? '').trim()).filter(Boolean);
   if (skus.length !== variants.length) errors.push('every variant needs a sellerSku');
   if (new Set(skus).size !== skus.length) errors.push('sellerSku must be unique within the product');
@@ -63,6 +65,7 @@ function productRow(row) {
     rawAttributes: row.raw_attributes,
     notes: row.notes,
     targetSites: row.target_sites,
+    workflowType: row.workflow_type ?? 'new_product',
     status: row.status,
     confirmedFields: row.confirmed_fields ?? {},
     createdAt: row.created_at,
@@ -261,13 +264,13 @@ export async function productsRoutes(app) {
         INSERT INTO products (
           id, internal_code, source_url, original_title, category_hint,
           purchase_price_cny, packed_weight_g, product_dimensions,
-          package_dimensions, raw_attributes, notes, target_sites, status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          package_dimensions, raw_attributes, notes, target_sites, status, workflow_type
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       `, [
         productId, body.internalCode.trim(), body.sourceUrl ?? null, body.originalTitle.trim(),
         body.categoryHint ?? null, Number(body.purchasePriceCny), Number(body.packedWeightG),
         body.productDimensions ?? {}, body.packageDimensions ?? {}, body.rawAttributes ?? {},
-        body.notes ?? null, targetSites, body.status ?? 'pending_ai'
+        body.notes ?? null, targetSites, body.status ?? 'pending_ai', body.workflowType ?? 'new_product'
       ]);
 
       for (const variant of variants) {
@@ -296,18 +299,20 @@ export async function productsRoutes(app) {
     const source = request.query?.source === 'ai' ? 'ai' : 'human';
     const merged = mergeReviewFields(row, request.body, row.confirmedFields, PRODUCT_REVIEW_FIELDS, source);
     validateReviewValues(merged.values, 'product');
+    const workflowType = request.body?.workflowType ?? row.workflowType;
+    if (!WORKFLOW_TYPES.has(workflowType)) throw badRequest('workflowType must be new_product or add_variants');
     const result = await app.db.query(`
       UPDATE products SET
         source_url=$2, original_title=$3, category_hint=$4, purchase_price_cny=$5,
         packed_weight_g=$6, product_dimensions=$7, package_dimensions=$8,
-        raw_attributes=$9, notes=$10, target_sites=$11
+        raw_attributes=$9, notes=$10, target_sites=$11, workflow_type=$12
       WHERE id=$1 RETURNING *
     `, [
       request.params.id, merged.values.sourceUrl || null, merged.values.originalTitle.trim(),
       merged.values.categoryHint || null, Number(merged.values.purchasePriceCny),
       Number(merged.values.packedWeightG), merged.values.productDimensions ?? {},
       merged.values.packageDimensions ?? {}, merged.values.rawAttributes ?? {},
-      merged.values.notes || null, merged.values.targetSites
+      merged.values.notes || null, merged.values.targetSites, workflowType
     ]);
     return { product: productRow(result.rows[0]), ignoredConfirmedFields: merged.ignoredConfirmedFields };
   });
@@ -470,7 +475,7 @@ export async function productsRoutes(app) {
   app.patch('/:id/status', async (request, reply) => {
     const status = request.body?.status;
     if (!STATUSES.has(status)) throw badRequest('Unsupported status');
-    if (status === 'publishing' || status === 'published') {
+    if (status === 'publishing' || status === 'published' || status === 'reconciliation_required') {
       throw badRequest('Publishing states can only be set by the publish workflow');
     }
     const result = await app.db.query('UPDATE products SET status = $1 WHERE id = $2 RETURNING *', [status, request.params.id]);

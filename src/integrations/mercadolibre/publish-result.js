@@ -22,19 +22,29 @@ export function normalizeFamilyPublishResult(payload, expectedSellerSkus = []) {
   // even when a batch element failed validation; the per-element errors are
   // embedded in the body as { error, status, cause } objects instead of a
   // user product. Detect those before treating them as identifier-less UPs.
-  if (entries.length && entries.every((entry) => entry && typeof entry === 'object'
-    && ('error' in entry || 'cause' in entry) && entry.status >= 400)) {
+  const rejectedEntries = entries.filter((entry) => entry && typeof entry === 'object'
+    && (Number(entry.status) >= 400 || Boolean(entry.error)
+      || (Array.isArray(entry.cause) ? entry.cause.length > 0 : Boolean(entry.cause))));
+  if (rejectedEntries.length) {
+    const acceptedEntries = entries.filter((entry) => !rejectedEntries.includes(entry));
     return {
       familyId: payload?.siteless_family_id ?? payload?.family_id ?? payload?.familyId ?? null,
       providerRejected: true,
+      providerPartiallyAccepted: acceptedEntries.length > 0,
       userProducts: entries.map((entry) => ({
         sellerSku: valueFor(entry.attributes, 'SELLER_SKU') ?? null,
-        userProductId: null,
-        familyId: null,
-        globalItemId: null,
+        userProductId: sitelessUserProductId(entry.siteless_user_product_id
+          ?? entry.parent_user_product_id ?? entry.user_product_id ?? entry.id),
+        familyId: entry.siteless_family_id ?? entry.family_id ?? null,
+        globalItemId: entry.item_id ?? entry.global_item_id ?? null,
         status: String(entry.status ?? ''),
-        error: entry.error ?? entry.message ?? null,
-        sites: [],
+        error: rejectedEntries.includes(entry) ? entry.error ?? entry.message ?? entry.cause ?? 'provider_rejected' : null,
+        sites: (entry.site_items ?? entry.sites_to_sell ?? entry.sites ?? []).map((site) => ({
+          site: site.site_id ?? site.site ?? null,
+          itemId: site.item_id ?? site.itemId ?? site.mercado_libre_item_id ?? null,
+          status: site.status ?? null,
+          error: site.error ?? site.cause ?? null
+        })).filter((site) => site.site),
         raw: entry
       }))
     };
