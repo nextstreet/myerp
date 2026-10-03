@@ -25,6 +25,7 @@
     <aside class="sidebar">
       <div class="brand"><span class="brand-mark small">ML</span><div><strong>AI Listing</strong><small>上架工作台</small></div></div>
       <nav id="navigation">
+        <button data-page="candidates" class="nav-item"><span>00</span>候选商品</button>
         <button data-page="products" class="nav-item active"><span>01</span>产品列表</button>
         <button data-page="import" class="nav-item"><span>02</span>导入产品</button>
         <button data-page="ai" class="nav-item"><span>03</span>AI 内容工作台</button>
@@ -139,6 +140,14 @@
         </div>
       </section>
 
+      <section id="page-candidates" class="page">
+        <div class="panel"><h3>候选商品工作台</h3><p class="muted">市场与类目 → 参考参数 → 货源确认 → 正式草稿／Excel。MX与BR单独记录；正式发布继续使用已有预检。</p>
+          <div class="toolbar"><input id="candidateFile" type="file" accept=".json,application/json"><button id="candidatePreview" class="button secondary">预览导入</button><button id="candidateImport" class="button primary" disabled>导入新候选</button><a class="button secondary" href="/api/candidates/template">示例JSON结构</a><a class="button secondary" href="/api/candidates/export">导出全部Excel</a><button id="candidateReload" class="button secondary">刷新</button></div>
+          <p class="muted">相同ID不会覆盖已有候选。预览中并列显示原数据和新数据。</p><details><summary>导入预览与差异</summary><pre id="candidateImportPreview">请选择数据包</pre></details>
+        </div><div id="candidateList" class="candidate-grid"></div>
+        <div id="candidateDetail" class="hidden"><h3 id="candidateName"></h3><pre id="candidateIssues" class="panel"></pre><div id="candidateEditor" class="candidate-editor"></div></div>
+      </section>
+
       <section id="page-review" class="page">
         <div class="toolbar"><select id="reviewProductSelect" class="grow"><option value="">选择需要审核的产品</option></select><button id="reloadReview" class="button secondary">刷新详情</button></div>
         <div id="reviewEmpty" class="panel empty">请选择一个产品。</div>
@@ -217,5 +226,6 @@
   </div>
   <div id="toast" class="toast hidden"></div>
   <script src="/console/app.js" defer></script>
+  <script src="/console/candidates.js" defer></script>
 </body>
 </html>

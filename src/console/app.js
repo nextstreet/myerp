@@ -99,8 +99,9 @@ function statusPill(status) {
 function navigate(page) {
   document.querySelectorAll('.page').forEach((node) => node.classList.toggle('active', node.id === `page-${page}`));
   document.querySelectorAll('.nav-item').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
-  const titles = { products: '产品列表', import: '导入产品', ai: 'AI 内容工作台', review: '人工审核与报价', publish: '发布预检' };
+  const titles = { candidates: '候选商品工作台', products: '产品列表', import: '导入产品', ai: 'AI 内容工作台', review: '人工审核与报价', publish: '发布预检' };
   $('pageTitle').textContent = titles[page];
+  if (page === 'candidates') window.loadCandidates();
   if (page === 'products') loadProducts();
   if (page === 'ai') prepareAiWorkspace();
   if (page === 'review') prepareReview();

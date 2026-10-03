@@ -196,3 +196,14 @@ pre{margin:0;max-height:520px;overflow:auto;padding:14px;border-radius:9px;backg
 .quote-sites strong{grid-column:auto}
 .top-actions .safety-badge{display:none}
 }
+
+.candidate-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; margin:20px 0; }
+.candidate-editor { display:grid; gap:16px; }
+.candidate-editor label { display:grid; gap:6px; margin:12px 0; }
+.candidate-fact { border-top:1px solid #dce3e8; padding:16px 0; }
+.candidate-image { padding:16px 0; border-top:1px solid #dce3e8; }
+.candidate-image img { width:120px; height:120px; object-fit:contain; display:block; }
+.candidate-editor .table-panel { overflow-x:auto; }
+.candidate-editor td input { min-width:100px; }
+.candidate-editor input[type=checkbox] { min-width:0; width:20px; height:20px; }
+.candidate-editor .button { margin:6px; }

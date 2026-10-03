@@ -4,6 +4,16 @@
 
 > Current stage: `v0.7.0 Global UP publishing`. The secure `/console` supports optional AI preparation, human review, Mercado Libre picture upload, current category preflight and one explicitly confirmed six-UP Family publication. Manual-only operation remains fully supported. Live publishing is disabled by default and cannot run without both the server switch and an operator confirmation.
 
+## Candidate workbench in v0.8.0
+
+- Separate candidate workspace for MLM/MLB research, editable copy, provenance-aware reference/actual facts, concrete SKU rows and image assignment.
+- JSON batch preview/import preserves existing IDs; optimistic revisions protect human edits.
+- Official local leaf-category/attribute lookup; incomplete facts and unsupported axes block draft conversion.
+- Six-sheet XLSX candidate export and transactional, idempotent conversion to the existing supported-site review workflow.
+- Brazil research/export is supported; Brazil live publication, Excel reimport and Miaoshou template compatibility are not yet implemented.
+
+See [docs/candidate-workbench.md](docs/candidate-workbench.md) for data format, operation, migration and exact integration boundaries.
+
 ## Included in v0.7.0
 
 - Official multi-UP Family creation and existing-Family increment through `POST/PUT /global/user-products/families`; every selected variant remains an independent Siteless User Product.

@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import { candidatesRoutes } from './routes/candidates.js';
 import { productsRoutes } from './routes/products.js';
 import { pricingRoutes } from './routes/pricing.js';
 import { publishRoutes } from './routes/publish.js';
@@ -83,6 +84,7 @@ export async function buildApp({ config, pool, mercadoLibreOAuth = null, console
   });
 
   await app.register(consoleRoutes);
+  await app.register(candidatesRoutes, { prefix: '/api/candidates' });
   await app.register(productsRoutes, { prefix: '/api/products' });
   await app.register(mediaRoutes, { prefix: '/api/products' });
   await app.register(pricingRoutes, { prefix: '/api/pricing' });

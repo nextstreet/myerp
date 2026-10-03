@@ -34,6 +34,11 @@ export async function consoleRoutes(app) {
     return reply.send(await readFile(join(root, 'styles.css')));
   });
 
+  app.get('/console/candidates.js', async (_request, reply) => {
+    reply.type('application/javascript; charset=utf-8').header('cache-control', 'public, max-age=300');
+    return reply.send(await readFile(join(root, 'candidates.js')));
+  });
+
   app.get('/console/app.js', async (_request, reply) => {
     reply.type('application/javascript; charset=utf-8').header('cache-control', 'public, max-age=300');
     return reply.send(await readFile(join(root, 'app.js')));
