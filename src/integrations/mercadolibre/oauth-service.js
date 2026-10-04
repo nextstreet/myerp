@@ -74,7 +74,7 @@ function marketplaceChildIds(item) {
           typeof value === 'string' ? { site_id: siteId, item_id: value } : { site_id: siteId, ...value }
         ))
       : [];
-  const preferredSites = new Map([['MCO', 0], ['MLC', 1], ['MLM', 2]]);
+  const preferredSites = new Map([['MLM', 0], ['MLB', 1], ['MCO', 2], ['MLC', 3]]);
   const seen = new Set();
   return raw
     .map((entry) => ({
@@ -85,7 +85,7 @@ function marketplaceChildIds(item) {
         ? String(entry).slice(0, 3).toUpperCase()
         : String(entry?.site_id ?? '').toUpperCase()
     }))
-    .filter(({ id }) => /^(MLM|MCO|MLC)\d+$/.test(id) && !seen.has(id) && seen.add(id))
+    .filter(({ id }) => /^(MLM|MLB|MCO|MLC)\d+$/.test(id) && !seen.has(id) && seen.add(id))
     .sort((left, right) => (preferredSites.get(left.siteId) ?? 99) - (preferredSites.get(right.siteId) ?? 99));
 }
 
@@ -581,7 +581,7 @@ export class MercadoLibreOAuthService {
     const profile = await request('authenticated_user', '/users/me');
     await request('sites', '/sites');
     const query = encodeURIComponent('organizador de escritorio');
-    for (const site of ['MLM', 'MCO', 'MLC']) {
+    for (const site of ['MLM', 'MLB', 'MCO', 'MLC']) {
       await request(`category_discovery_${site}`, `/sites/${site}/domain_discovery/search?q=${query}&limit=1`);
     }
     const accountResult = await this.pool.query(`

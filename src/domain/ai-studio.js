@@ -1,4 +1,4 @@
-const SITES = Object.freeze(['MLM', 'MCO', 'MLC']);
+const SITES = Object.freeze(['MLM', 'MLB', 'MCO', 'MLC']);
 
 export function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -67,7 +67,7 @@ export function validateFactExtraction(output) {
   return { suggestions, confidence, evidence, warnings: Array.isArray(output.warnings) ? output.warnings : [] };
 }
 
-export function validateListingDrafts(output, selectedSites = SITES) {
+export function validateListingDrafts(output, selectedSites = ['MLM', 'MCO', 'MLC']) {
   assertFactObject(output, 'AI listing output');
   const listings = assertFactObject(output.listings ?? {}, 'listings');
   const clean = {};
@@ -147,8 +147,8 @@ export function factExtractionPrompt({ product, selectedMedia }) {
 export function listingCopyPrompt({ facts, categoryRequirements, selectedSites }) {
   return {
     system: [
-      'You create Mercado Libre listing drafts for Mexico (MLM), Colombia (MCO), and Chile (MLC).',
-      'Titles must be natural local Spanish. Description and specification values must be English.',
+      'You create Mercado Libre listing drafts for Mexico (MLM), Brazil (MLB), Colombia (MCO), and Chile (MLC).',
+      'Titles must be natural local Spanish for MLM/MCO/MLC and Brazilian Portuguese for MLB. Description and specification values must be English.',
       'Use platform enum values exactly when category metadata supplies them.',
       'Do not invent brand, model, certification, material, performance, warranty or compatibility claims.',
       'Return one JSON object only. Every selected site must be present.'

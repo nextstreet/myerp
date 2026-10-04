@@ -1,4 +1,4 @@
-const SITES = Object.freeze(['MLM', 'MCO', 'MLC']);
+const SITES = Object.freeze(['MLM', 'MLB', 'MCO', 'MLC']);
 
 function normalizedValues(variants, getter) {
   return new Set(variants.map(getter).map((value) => String(value ?? '').trim()).filter(Boolean));
@@ -37,7 +37,7 @@ export function sameVariantAxes(left = [], right = []) {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-export function validateCategoryQueryPlan(output, selectedSites = SITES) {
+export function validateCategoryQueryPlan(output, selectedSites = ['MLM', 'MCO', 'MLC']) {
   if (!output || typeof output !== 'object' || Array.isArray(output)) throw new Error('Invalid category query plan');
   const sites = {};
   for (const site of selectedSites) {
@@ -55,8 +55,8 @@ export function validateCategoryQueryPlan(output, selectedSites = SITES) {
 export function categoryQueryPrompt({ facts, selectedSites = SITES }) {
   return {
     system: [
-      'You prepare category-search queries for Mercado Libre Mexico, Colombia and Chile.',
-      'Use only verified product facts. Return concise natural Spanish product-type queries, not titles or marketing text.',
+      'You prepare category-search queries for Mercado Libre Mexico, Brazil, Colombia and Chile.',
+      'Use only verified product facts. Return concise natural local-language product-type queries (Portuguese for MLB, Spanish for other sites), not titles or marketing text.',
       'Do not invent brand, material, certification, function or compatibility. Return one JSON object only.'
     ].join(' '),
     prompt: JSON.stringify({

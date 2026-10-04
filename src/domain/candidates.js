@@ -1,7 +1,8 @@
 import { variantAxes } from './category-assessment.js';
 
 export const CANDIDATE_SITES = ['MLM', 'MLB', 'MCO', 'MLC'];
-export const DRAFT_SITES = ['MLM', 'MCO', 'MLC'];
+export const DRAFT_SITES = ['MLM', 'MLB', 'MCO', 'MLC'];
+export const englishSignature = data => JSON.stringify([data.english?.title ?? '', data.english?.description ?? '', data.english?.sellingPoints ?? []]);
 export function invalid(message, statusCode = 400, details) {
   return Object.assign(new Error(message), { statusCode, code: 'candidate_validation', details });
 }
@@ -12,6 +13,8 @@ export function validateCandidate(data) {
   if (!String(data.name ?? '').trim()) throw invalid('产品名称必填');
   if (!Array.isArray(data.targetSites) || !data.targetSites.length || new Set(data.targetSites).size !== data.targetSites.length || data.targetSites.some(s => !CANDIDATE_SITES.includes(s))) throw invalid('目标站点无效');
   if (!Array.isArray(data.skus) || data.skus.length > 100 || !Array.isArray(data.images) || !object(data.sites) || !object(data.facts)) throw invalid('skus、images、sites、facts结构无效');
+  if (data.english !== undefined && (!object(data.english) || typeof data.english.title !== 'string' || typeof data.english.description !== 'string' || !Array.isArray(data.english.sellingPoints) || data.english.sellingPoints.some(v => typeof v !== 'string'))) throw invalid('英文标题、描述和卖点结构无效');
+  if (data.researchSources !== undefined && (!Array.isArray(data.researchSources) || data.researchSources.length > 40 || data.researchSources.some(v => !object(v) || !['MLM', 'MLB', 'Amazon', 'Temu', 'Shopee'].includes(v.platform) || typeof v.url !== 'string' || !/^https:\/\//.test(v.url) || typeof v.notes !== 'string' || JSON.stringify(v).length > 12000 || (v.extracted != null && (!object(v.extracted) || typeof v.extracted.title !== 'string'))))) throw invalid('市场来源须包含平台、HTTPS链接和摘要，最多40条且每条不超过12KB');
   if (data.images.length > 50) throw invalid('最多50张图片');
   for (const key of ['name', 'batchId', 'sourceUrl', 'notes', 'familyName', 'descriptionEnglish']) if (data[key] !== undefined && typeof data[key] !== 'string') throw invalid(`${key}须为文本`);
   const keys = data.skus.map(s => s?.id);
@@ -44,6 +47,8 @@ export function validateCandidate(data) {
     }
   }
   const result = structuredClone(data);
+  result.english ??= { title: data.familyName || '', description: data.descriptionEnglish || '', sellingPoints: [] };
+  result.researchSources ??= [];
   for (const key of ['material', 'purchasePriceCny', 'packedWeightG', 'productDimensions', 'packageDimensions']) result.facts[key] ??= { reference: { value: '', source: '', unit: '' }, actual: { value: '', source: '', confirmed: false } };
   return result;
 }
@@ -62,6 +67,8 @@ export function candidateIssues(data, checks = {}, selectedSites = data.targetSi
   const issues = [];
   const add = (field, message) => issues.push({ field, message });
   if (!Array.isArray(selectedSites) || !selectedSites.length || new Set(selectedSites).size !== selectedSites.length || selectedSites.some(s => !data.targetSites.includes(s))) return [{ field: 'targetSites', message: '请选择候选范围内的目标站点' }];
+  if (!String(data.english?.title ?? '').trim() || !String(data.english?.description ?? '').trim()) add('english', '请先完成英文标题和英文描述');
+  if (String(data.english?.title ?? '').length > 60 || /[\u3400-\u9fff]/u.test(data.english?.title ?? '')) add('english.title', '英文Family名称须不超过60字符且不能包含中文');
   const kept = data.skus.filter(s => s.keep !== false);
   if (!kept.length) add('skus', '至少保留一个SKU');
   const skuNames = new Set();
@@ -89,11 +96,13 @@ export function candidateIssues(data, checks = {}, selectedSites = data.targetSi
     if (!image || image.status !== 'usable') add(`${sku.id}.image`, '请选择已确认可刊登的主图');
   }
   const axes = variantAxes(kept.map(s => ({ color: s.color, size: s.size, otherAttributes: s.pattern ? { PATTERN: s.pattern } : {} })));
+  if (kept.length > 1 && !axes.length) add('skus', '多SKU需要类目允许的明确规格轴');
   const cbtIds = new Set(selectedSites.map(s => data.sites[s]?.cbtCategoryId).filter(Boolean));
   if (cbtIds.size > 1) add('sites', '一个正式Family不能使用多个CBT类目；请拆分候选');
   for (const site of selectedSites) {
-    if (!DRAFT_SITES.includes(site)) add(site, '当前正式发布链路未接入巴西；可保存和导出候选工作表');
-    if (!String(data.sites[site]?.title ?? '').trim()) add(site, '站点标题缺失');
+    if (!DRAFT_SITES.includes(site)) add(site, '当前站点无法转正式草稿');
+    if (!String(data.sites[site]?.title ?? '').trim() || !String(data.sites[site]?.description ?? '').trim()) add(site, '当地语言标题或描述缺失');
+    if (data.sites[site]?.localizedFrom !== englishSignature(data)) add(site, '英文内容已改变或译文尚未确认，请在翻译页重新审核');
     const check = checks[site];
     const age = now - Date.parse(check?.checkedAt);
     if (!check?.ok || check.categoryId !== data.sites[site]?.categoryId || !Number.isFinite(age) || age < 0 || age > 86400000) add(site, '需重新读取官方末级类目和属性（有效24小时）');
@@ -103,5 +112,5 @@ export function candidateIssues(data, checks = {}, selectedSites = data.targetSi
   return issues;
 }
 export function examplePackage() {
-  return { schemaVersion: 1, candidates: [{ id: 'example-organizer', name: '示例收纳用品（演示数据）', batchId: 'demo', targetSites: ['MLM', 'MLB'], sourceUrl: '', notes: '仅演示结构，类目与产品参数尚未研究', facts: Object.fromEntries(['material', 'purchasePriceCny', 'packedWeightG', 'productDimensions', 'packageDimensions'].map(k => [k, { reference: { value: '', source: '待研究', unit: '' }, actual: { value: '', source: '', confirmed: false } }])), sites: { MLM: { title: '', description: '', categoryId: '', cbtCategoryId: '', evidence: [] }, MLB: { title: '', description: '', categoryId: '', cbtCategoryId: '', evidence: [] } }, images: [], skus: [{ id: 'sku-01', sellerSku: '', color: '', size: '', pattern: '', stock: 10, netProceedsUsd: null, keep: true, existsConfirmed: false, facts: {}, imageId: '' }] }] };
+  return { schemaVersion: 1, candidates: [{ id: 'example-organizer', name: '示例收纳用品（演示数据）', batchId: 'demo', targetSites: ['MLM', 'MLB'], sourceUrl: '', notes: '仅演示结构，类目与产品参数尚未研究', english: { title: '', description: '', sellingPoints: [] }, researchSources: [], facts: Object.fromEntries(['material', 'purchasePriceCny', 'packedWeightG', 'productDimensions', 'packageDimensions'].map(k => [k, { reference: { value: '', source: '待研究', unit: '' }, actual: { value: '', source: '', confirmed: false } }])), sites: { MLM: { title: '', description: '', categoryId: '', cbtCategoryId: '', evidence: [] }, MLB: { title: '', description: '', categoryId: '', cbtCategoryId: '', evidence: [] } }, images: [], skus: [{ id: 'sku-01', sellerSku: '', color: '', size: '', pattern: '', stock: 10, netProceedsUsd: null, keep: true, existsConfirmed: false, facts: {}, imageId: '' }] }] };
 }

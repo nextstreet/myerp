@@ -68,8 +68,8 @@ export async function mercadoLibreRoutes(app) {
   app.get('/api/integrations/mercadolibre/accounts/:accountId/items/:itemId', async (request) => {
     if (!app.mercadoLibreOAuth) throw unavailable();
     const itemId = String(request.params.itemId ?? '').trim().toUpperCase();
-    if (!/^(MLM|MCO|MLC)\d{6,15}$/.test(itemId)) {
-      const error = new Error('itemId must be a Mexico, Colombia, or Chile Mercado Libre item ID');
+    if (!/^(MLM|MLB|MCO|MLC)\d{6,15}$/.test(itemId)) {
+      const error = new Error('itemId must be a Mexico, Brazil, Colombia, or Chile Mercado Libre item ID');
       error.statusCode = 400;
       error.code = 'validation_error';
       throw error;
@@ -92,9 +92,9 @@ export async function mercadoLibreRoutes(app) {
   app.post('/api/integrations/mercadolibre/accounts/:accountId/category-discovery', async (request) => {
     if (!app.mercadoLibreOAuth) throw unavailable();
     const query = String(request.body?.query ?? '').trim();
-    const sites = request.body?.sites ?? ['CBT', 'MLM', 'MCO', 'MLC'];
+    const sites = request.body?.sites ?? ['CBT', 'MLM', 'MLB', 'MCO', 'MLC'];
     const limit = Math.min(Math.max(Number(request.body?.limit ?? 5), 1), 10);
-    const allowedSites = new Set(['CBT', 'MLM', 'MCO', 'MLC']);
+    const allowedSites = new Set(['CBT', 'MLM', 'MLB', 'MCO', 'MLC']);
     if (query.length < 2 || query.length > 200) {
       const error = new Error('query must contain between 2 and 200 characters');
       error.statusCode = 400;

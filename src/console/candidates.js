@@ -21,12 +21,41 @@
   function render() {
     $('candidateEditor').replaceChildren(); $('candidateDetail').classList.remove('hidden');
     $('candidateName').textContent = current.name; $('candidateIssues').textContent = current.issues.map(i => `${i.field}: ${i.message}`).join('\n') || '候选检查通过；正式草稿仍须CBT/Child PK核验和远程预检。';
-    const general = section('采购与产品内容');
-    general.append(label('产品名称', control(current.name, v => current.name = v)), label('批次', control(current.batchId, v => current.batchId = v)), label('1688货源链接', control(current.sourceUrl, v => current.sourceUrl = v)), label('英文Family名称', control(current.familyName, v => current.familyName = v)), label('英文共用描述', control(current.descriptionEnglish, v => current.descriptionEnglish = v)));
+    const general = section('第一步 · 英文选品草稿与货源确认');
+    current.english ??= { title: current.familyName || '', description: current.descriptionEnglish || '', sellingPoints: [] };
+    current.researchSources ??= [];
+    general.append(label('产品名称', control(current.name, v => current.name = v)), label('批次', control(current.batchId, v => current.batchId = v)), label('1688货源链接', control(current.sourceUrl, v => current.sourceUrl = v)), label('英文Family标题（≤60字符）', control(current.english.title, v => current.english.title = v)), label('英文共用描述', textEdit(current.english.description, v => current.english.description = v)), label('英文卖点（一行一条）', textEdit(current.english.sellingPoints.join('\n'), v => current.english.sellingPoints = v.split('\n').map(x => x.trim()).filter(Boolean))), label('市场来源（JSON数组：platform/url/notes）', jsonEdit(current.researchSources, v => current.researchSources = v, 8)));
+    for (const source of current.researchSources) {
+      const result = source.lastFetch;
+      general.append(node('p', `${source.platform} · ${source.url}\n${result ? `${result.status}：${result.reason || result.fields?.join(', ')}` : '尚未采集'}${source.extracted?.title ? `\n标题：${source.extracted.title}` : ''}${source.extracted?.categoryPath?.length ? `\n官方类目：${source.extracted.categoryPath.map(part => part.name).join(' → ')} (${source.extracted.categoryId})` : ''}`, 'muted'));
+      if (source.extracted?.categoryId && current.targetSites.includes(source.platform)) general.append(button('采用此竞品的本地类目', 'button secondary', run(async () => {
+        const item = current.sites[source.platform]; item.categoryId = source.extracted.categoryId;
+        item.evidence ??= []; item.evidence.push({ url: source.url, itemTitle: source.extracted.title, categoryId: source.extracted.categoryId, categoryPath: source.extracted.categoryPath, fetchedAt: source.extracted.fetchedAt });
+        await save(); toast('已录入竞品类目，请继续读取官方类目与规格属性');
+      })));
+      general.append(button('采集这条链接并预览', 'button secondary', run(async () => {
+        await save();
+        const matched = current.researchSources.find(item => item.url === source.url);
+        let accountId;
+        if (['MLM', 'MLB'].includes(matched.platform)) {
+          const response = await api('/api/integrations/mercadolibre/accounts');
+          const accounts = (response.accounts ?? response).filter(a => a.status === 'connected');
+          accountId = accounts[0]?.id;
+        }
+        const extraction = await api(`/api/candidates/${current.id}/research/extract`, { method: 'POST', body: JSON.stringify({ revision: current.revision, url: matched.url, accountId }) });
+        matched.lastFetch = { status: extraction.status, reason: extraction.reason, fields: extraction.fields, fetchedAt: extraction.fetchedAt };
+        matched.extracted = extraction.status === 'extracted' ? { title: extraction.title, description: extraction.description, bullets: extraction.bullets, attributes: extraction.attributes, image: extraction.image, categoryId: extraction.categoryId, categoryPath: extraction.categoryPath, sourceMethod: extraction.sourceMethod, fetchedAt: extraction.fetchedAt } : null;
+        await save(); toast(extraction.status === 'extracted' ? '已保存采集内容，请审核来源与规格' : `未获取有效商品内容：${extraction.reason}`, extraction.status !== 'extracted');
+      })));
+    }
+    general.append(button('根据已录入来源生成英文建议', 'button secondary', run(async () => {
+      await save(); const answer = await api(`/api/candidates/${current.id}/english/suggest`, { method: 'POST', body: JSON.stringify({ revision: current.revision }) });
+      current.english = answer.proposal; render(); toast('英文建议已填入，请核对后保存');
+    })));
     for (const [key, fact] of Object.entries(current.facts)) factEditor(general, key, fact);
-    const category = section('站点资料与类目核验');
-    category.append(node('p', '本地类目与CBT映射分开；官方检查仅确认本地末级类目和传统规格属性。巴西目前可研究、编辑、导出。', 'muted'));
-    for (const site of ['MLM', 'MLB', 'MCO', 'MLC']) {
+    const category = section('MX / BR 类目树与规格核验');
+    category.append(node('p', '先根据美客多同类商品确定实际末级类目；竞品和预测结果需分别记录，官方查询只确认类目树和规格属性。', 'muted'));
+    for (const site of ['MLM', 'MLB']) {
       const active = current.targetSites.includes(site);
       category.append(label(`${site}纳入候选`, control(active, v => {
         if (v) { current.targetSites.push(site); current.sites[site] ??= { title: '', description: '', categoryId: '', cbtCategoryId: '', evidence: [] }; }
@@ -35,11 +64,12 @@
       }, 'checkbox')));
       if (!active) continue;
       const item = current.sites[site], check = current.categoryChecks[site];
-      category.append(node('h4', site === 'MLB' ? '巴西 · Português' : site), label('差异化标题', control(item.title, v => item.title = v)), label('当地语言描述', control(item.description, v => item.description = v)), label('本地末级类目ID', control(item.categoryId, v => item.categoryId = v)), label('CBT类目ID', control(item.cbtCategoryId, v => item.cbtCategoryId = v)), label('核心卖点（JSON数组）', jsonEdit(item.sellingPoints ?? [], v => item.sellingPoints = v)), label('竞品依据（JSON数组，保留链接与实际类目）', jsonEdit(item.evidence ?? [], v => item.evidence = v)), label('必填属性（JSON对象）', jsonEdit(item.attributes ?? {}, v => item.attributes = v)));
+      category.append(node('h4', site === 'MLB' ? '巴西 MLB' : '墨西哥 MLM'), label('本地末级类目ID', control(item.categoryId, v => item.categoryId = v)), label('CBT类目ID', control(item.cbtCategoryId, v => item.cbtCategoryId = v)), label('竞品依据（JSON数组，保留链接与实际类目）', jsonEdit(item.evidence ?? [], v => item.evidence = v)), label('必填属性（JSON对象）', jsonEdit(item.attributes ?? {}, v => item.attributes = v)));
       category.append(node('p', check ? `${check.message} · ${check.checkedAt}\n${check.path.map(p => p.name).join(' → ')}\n允许规格：${check.variationAttributes.map(a => a.id).join(', ')}` : '尚未读取官方类目', 'muted'));
       if (check) category.append(node('pre', JSON.stringify(check.requiredAttributes, null, 2)));
       category.append(button('保存后读取官方类目', 'button secondary', run(async () => {
-        await save(); const accounts = await api('/api/integrations/mercadolibre/accounts');
+        await save(); const response = await api('/api/integrations/mercadolibre/accounts');
+        const accounts = response.accounts ?? response;
         const connected = accounts.filter(a => a.status === 'connected');
         if (!connected.length) throw Error('未找到已授权账号');
         let accountId = connected[0].id;
@@ -73,17 +103,13 @@
       card.append(label('使用状态', status), label('共用辅图', control(image.role === 'shared', v => image.role = v ? 'shared' : 'primary', 'checkbox')), label('图片方案/提示词', control(image.prompt, v => image.prompt = v)), button('删除并解除SKU关联', 'button secondary', () => { current.images = current.images.filter(i => i !== image); current.skus.forEach(s => { if (s.imageId === image.id) s.imageId = ''; }); render(); })); images.append(card);
     }
     images.append(button('添加图片链接', 'button secondary', () => { const url = prompt('输入HTTPS图片链接'); if (url) { current.images.push({ id: `image-${crypto.randomUUID()}`, url, status: 'pending', role: 'primary' }); render(); } }));
-    const actions = section('保存与输出');
+    const actions = section('下一步 · 翻译与输出');
     actions.append(button('保存草稿并检查', 'button primary', run(save)), link('导出Excel工作表（已保存内容）', `/api/candidates/${current.id}/export`), link('导出JSON数据包', `/api/candidates/${current.id}/export?format=json`));
-    actions.append(node('p', 'Excel为六个Sheet的候选工作表；尚未映射妙手上传模板。转入只创建草稿，包装参数仍需在正式发布属性中确认。', 'muted'));
-    const selected = []; current.targetSites.forEach(s => actions.append(label(`${s}转入正式草稿`, control(false, v => { if (v) selected.push(s); else selected.splice(selected.indexOf(s), 1); }, 'checkbox'))));
-    actions.append(button('转为正式上架草稿', 'button accent', run(async () => {
-      if (!current.productId) await save();
-      const result = await api(`/api/candidates/${current.id}/promote`, { method: 'POST', body: JSON.stringify({ revision: current.revision, sites: selected }) });
-      toast('正式草稿已创建，请核验属性、图片和UP分组'); await loadProducts(); openReview(result.id);
-    })));
+    actions.append(node('p', '确认英文草稿及货源参数后进入翻译页。Excel直接保存天船ERP工作表；直接发布仍需完成正式预检。', 'muted'));
+    actions.append(button('进入巴西／墨西哥翻译页', 'button primary', run(async () => { if (!current.productId) await save(); await openCandidateLocalization(current.id); })));
     if (current.productId) { actions.append(node('p', '已转正式商品；请在正式商品页修改。')); $('candidateEditor').querySelectorAll('input,textarea,select,button').forEach(el => el.disabled = true); actions.append(button('打开正式草稿', 'button primary', () => openReview(current.productId))); }
   }
+  const textEdit = (value, change) => { const el = node('textarea'); el.rows = 5; el.value = value ?? ''; el.addEventListener('change', () => change(el.value)); return el; };
   function factEditor(parent, key, fact) {
     const box = node('div', undefined, 'candidate-fact'); fact.actual ??= { value: '', source: '', confirmed: false };
     box.append(node('strong', key), node('p', `参考：${JSON.stringify(fact.reference?.value ?? '')} ${fact.reference?.unit ?? ''} · 来源：${fact.reference?.source ?? '待研究'} ${fact.reference?.url ?? ''}`, 'muted'));
@@ -109,5 +135,50 @@
     if (!imported) throw Error('请先预览'); const result = await api('/api/candidates/import', { method: 'POST', body: JSON.stringify(imported) });
     toast(`新增${result.created.length}个，保留已有${result.preserved.length}个`); $('candidateImport').disabled = true; imported = null; await load();
   }));
+  window.openCandidateLocalization = async id => {
+    try {
+      navigate('localization');
+      current = await api(`/api/candidates/${id}`);
+      renderLocalization();
+    } catch (error) { toast(error.message, true); }
+  };
+  function renderLocalization() {
+    const container = $('localizationEditor'); container.replaceChildren();
+    $('localizationName').textContent = current.name;
+    const source = JSON.stringify([current.english?.title ?? '', current.english?.description ?? '', current.english?.sellingPoints ?? []]);
+    const heading = node('article', undefined, 'panel'); heading.append(node('h3', '英文原稿'), node('strong', current.english?.title ?? ''), node('p', current.english?.description ?? ''), node('pre', (current.english?.sellingPoints ?? []).join('\n'))); container.append(heading);
+    for (const site of ['MLM', 'MLB'].filter(site => current.targetSites.includes(site))) {
+      const item = current.sites[site], box = node('article', undefined, 'panel');
+      box.append(node('h3', site === 'MLB' ? '巴西葡萄牙语 · MLB' : '墨西哥西班牙语 · MLM'));
+      box.append(node('p', item.localizedFrom === source ? '译文与当前英文稿一致' : '译文待审核或英文稿已更新', item.localizedFrom === source ? 'status-pill good' : 'status-pill bad'));
+      box.append(label('当地语言标题', control(item.title, v => { item.title = v; item.localizedFrom = ''; })), label('当地语言描述', textEdit(item.description, v => { item.description = v; item.localizedFrom = ''; })), label('当地语言卖点（一行一条）', textEdit((item.sellingPoints ?? []).join('\n'), v => { item.sellingPoints = v.split('\n').map(x => x.trim()).filter(Boolean); item.localizedFrom = ''; })));
+      box.append(button('生成翻译建议', 'button secondary', run(async () => {
+        const answer = await api(`/api/candidates/${current.id}/localize/${site}/suggest`, { method: 'POST', body: JSON.stringify({ revision: current.revision }) });
+        Object.assign(item, answer.proposal, { localizedFrom: '' }); renderLocalization(); toast('译文建议已填入，请审核后确认');
+      })));
+      box.append(button('确认此站点译文', 'button primary', run(async () => {
+        if (!item.title?.trim() || !item.description?.trim()) throw Error('标题和描述必填');
+        item.localizedFrom = source; await saveLocalization(); toast(`${site}译文已确认`);
+      })));
+      container.append(box);
+    }
+    const actions = node('article', undefined, 'panel');
+    actions.append(node('h3', '输出或发布'), link('下载天船ERP Excel', `/api/candidates/${current.id}/export`));
+    if (current.productId) actions.append(button('打开已创建的正式草稿', 'button secondary', () => openReview(current.productId)));
+    else {
+      const selected = [];
+      for (const site of ['MLM', 'MLB'].filter(s => current.targetSites.includes(s))) actions.append(label(`选择${site}作为发布站点`, control(false, v => { if (v && !selected.includes(site)) selected.push(site); if (!v) selected.splice(selected.indexOf(site), 1); }, 'checkbox')));
+      actions.append(button('转正式草稿并继续预检', 'button accent', run(async () => {
+        const result = await api(`/api/candidates/${current.id}/promote`, { method: 'POST', body: JSON.stringify({ revision: current.revision, sites: selected }) });
+        await loadProducts(); openReview(result.id);
+      })));
+    }
+    actions.append(node('p', 'Family接口实际提交英文商品资料；当地语言译文留在天船ERP和Excel中用于核对。直接发布仍在正式草稿页按原有步骤审核图片、远程预检并明确确认。', 'muted'));
+    container.append(actions);
+  }
+  async function saveLocalization() {
+    const { revision, categoryChecks, productId, updatedAt, issues, ...data } = current;
+    current = await api(`/api/candidates/${current.id}`, { method: 'PUT', body: JSON.stringify({ revision, data }) }); renderLocalization();
+  }
   window.loadCandidates = run(load);
 })();

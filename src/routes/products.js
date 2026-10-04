@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { withTransaction } from '../db/pool.js';
 import { mergeReviewFields, updateConfirmations } from '../domain/review-merge.js';
 
-const SITE_CODES = new Set(['MLM', 'MCO', 'MLC']);
+const SITE_CODES = new Set(['MLM', 'MLB', 'MCO', 'MLC']);
 const STATUSES = new Set([
   'pending_import', 'pending_ai', 'ai_processing', 'pending_review',
   'pending_publish', 'publishing', 'published', 'publish_failed', 'reconciliation_required', 'paused'
@@ -20,7 +20,7 @@ const LISTING_REVIEW_FIELDS = [
   'requiredAttributes', 'familyName', 'familyData', 'userProductData',
   'currency', 'targetProfitUsd', 'targetMarginRate', 'pricingBasis'
 ];
-const SITE_CURRENCIES = Object.freeze({ MLM: 'USD', MCO: 'USD', MLC: 'USD' });
+const SITE_CURRENCIES = Object.freeze({ MLM: 'USD', MLB: 'USD', MCO: 'USD', MLC: 'USD' });
 const WORKFLOW_TYPES = new Set(['new_product', 'add_variants']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -39,7 +39,7 @@ function validateProduct(body) {
   if (!String(body?.originalTitle ?? '').trim()) errors.push('originalTitle is required');
   if (!Number.isFinite(Number(body?.purchasePriceCny)) || Number(body.purchasePriceCny) < 0) errors.push('purchasePriceCny must be non-negative');
   if (!Number.isInteger(Number(body?.packedWeightG)) || Number(body.packedWeightG) <= 0) errors.push('packedWeightG must be a positive integer');
-  const targetSites = body?.targetSites ?? ['MLM', 'MCO', 'MLC'];
+  const targetSites = body?.targetSites ?? ['MLM', 'MLB'];
   if (!Array.isArray(targetSites) || targetSites.some((site) => !SITE_CODES.has(site))) errors.push('targetSites contains an unsupported site');
   const variants = Array.isArray(body?.variants) ? body.variants : [];
   if (!WORKFLOW_TYPES.has(body?.workflowType ?? 'new_product')) errors.push('workflowType must be new_product or add_variants');

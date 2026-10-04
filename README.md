@@ -1,8 +1,15 @@
 # Mercado Libre AI Listing Console
 
-美客多AI上架工作台：一个面向 Mexico、Colombia、Chile 的轻量级商品资料、AI文案、图片、报价、UP多规格和官方API发布工作台。
+美客多AI上架工作台：一个面向 Mexico、Brazil 的商品资料、AI文案、图片、报价、UP多规格和官方API发布工作台。历史 Colombia、Chile 商品仍可通过原有 API 读取。
 
-> Current stage: `v0.7.0 Global UP publishing`. The secure `/console` supports optional AI preparation, human review, Mercado Libre picture upload, current category preflight and one explicitly confirmed six-UP Family publication. Manual-only operation remains fully supported. Live publishing is disabled by default and cannot run without both the server switch and an operator confirmation.
+> Current stage: `v0.9.0 MX/BR English draft and localization`. The secure `/console` supports optional AI suggestions, human review, Mercado Libre picture upload, current category preflight and explicit Family publication. Live publishing is disabled by default and cannot run without both the server switch and an operator confirmation.
+
+## MX/BR workflow in v0.9.0
+
+- The candidate page captures Mercado Libre, Amazon, Temu and Shopee research URLs and notes, an English title/description/selling points, real supplier facts and SKUs, and verified local leaf-category trees with variation attributes.
+- A separate localization page reviews Brazilian Portuguese and Mexican Spanish copy. Changes to the English draft invalidate previously confirmed translations.
+- Download a six-sheet Tianchuan ERP Excel workbook or promote selected sites to the formal draft, where picture review, pricing, remote checks and explicit publication remain required. Global UP sends English Family content; localized copy is kept for review and export, not sent as local descriptions by this endpoint.
+- A guarded product-link extractor reads public HTML metadata and Amazon feature bullets; blocked Mercado Libre pages may fall back to the connected account's official item, description and category-tree endpoints. It reports empty JS shells and HTTP denials instead of inventing content. Optional AI suggestions use the extracted data and operator notes. Live Brazil seller capability and publication have not been verified against a connected account.
 
 ## Candidate workbench in v0.8.0
 
@@ -10,7 +17,7 @@
 - JSON batch preview/import preserves existing IDs; optimistic revisions protect human edits.
 - Official local leaf-category/attribute lookup; incomplete facts and unsupported axes block draft conversion.
 - Six-sheet XLSX candidate export and transactional, idempotent conversion to the existing supported-site review workflow.
-- Brazil research/export is supported; Brazil live publication, Excel reimport and Miaoshou template compatibility are not yet implemented.
+- Brazil is available in the formal draft and existing publication preflight; Excel reimport and Miaoshou template compatibility are not implemented.
 
 See [docs/candidate-workbench.md](docs/candidate-workbench.md) for data format, operation, migration and exact integration boundaries.
 

@@ -12,7 +12,7 @@
       <div class="brand-mark">ML</div>
       <p class="eyebrow">MERCADO LIBRE AI LISTING CONSOLE</p>
       <h1>美客多 AI 上架工作台</h1>
-      <p class="muted">管理 Mexico、Colombia、Chile 商品资料、规格、图片、报价与发布预检。</p>
+      <p class="muted">管理墨西哥和巴西商品资料、规格、图片、报价与发布预检。</p>
       <form id="loginForm">
         <label>管理密码<input id="loginPassword" type="password" autocomplete="current-password" required></label>
         <button class="button primary wide" type="submit">安全登录</button>
@@ -25,8 +25,9 @@
     <aside class="sidebar">
       <div class="brand"><span class="brand-mark small">ML</span><div><strong>AI Listing</strong><small>上架工作台</small></div></div>
       <nav id="navigation">
-        <button data-page="candidates" class="nav-item"><span>00</span>候选商品</button>
-        <button data-page="products" class="nav-item active"><span>01</span>产品列表</button>
+        <button data-page="candidates" class="nav-item active"><span>00</span>英文选品草稿</button>
+        <button data-page="localization" class="nav-item"><span>⇢</span>翻译与输出</button>
+        <button data-page="products" class="nav-item"><span>01</span>产品列表</button>
         <button data-page="import" class="nav-item"><span>02</span>导入产品</button>
         <button data-page="ai" class="nav-item"><span>03</span>AI 内容工作台</button>
         <button data-page="review" class="nav-item"><span>04</span>审核与报价</button>
@@ -37,11 +38,11 @@
 
     <div class="workspace">
       <header class="topbar">
-        <div><p class="eyebrow">GLOBAL SELLING · CBT</p><h2 id="pageTitle">产品列表</h2></div>
+        <div><p class="eyebrow">GLOBAL SELLING · CBT</p><h2 id="pageTitle">英文选品草稿</h2></div>
         <div class="top-actions"><span id="publishSafetyBadge" class="safety-badge">正式发布已关闭</span><button id="logoutButton" class="button ghost">退出</button></div>
       </header>
 
-      <section id="page-products" class="page active">
+      <section id="page-products" class="page">
         <div class="toolbar">
           <select id="productStatusFilter"><option value="">全部状态</option><option value="pending_ai">待AI处理</option><option value="pending_review">待审核</option><option value="pending_publish">待发布</option><option value="published">已发布</option><option value="publish_failed">发布失败</option><option value="reconciliation_required">平台已受理·待对账</option><option value="paused">已暂停</option></select>
           <input id="productSearch" class="grow" type="search" placeholder="搜索：内部编号 / 标题 / 颜色 / SKU">
@@ -76,7 +77,7 @@
 
           <div class="section-heading"><div><p class="eyebrow">USER PRODUCTS</p><h3>规格列表</h3></div><div><button id="addVariant" type="button" class="button secondary">＋ 添加规格</button> <button id="fillSixColors" type="button" class="button accent">填入六色演示规格</button></div></div>
           <div class="panel table-panel"><table><thead><tr><th>Seller SKU</th><th>颜色</th><th>尺寸</th><th>库存</th><th>单独采购价</th><th>单独重量</th><th></th></tr></thead><tbody id="importVariantsBody"></tbody></table></div>
-          <div class="form-footer"><span class="muted">默认目标站点：MLM、MCO、MLC</span><button type="submit" class="button primary">保存产品和全部规格</button></div>
+          <div class="form-footer"><span class="muted">默认目标站点：墨西哥MLM、巴西MLB</span><button type="submit" class="button primary">保存产品和全部规格</button></div>
         </form>
       </section>
 
@@ -120,10 +121,10 @@
           </div>
           <div id="aiMediaGrid" class="media-grid selectable-media"></div>
 
-          <div class="section-heading"><div><p class="eyebrow">CATEGORY GATE</p><h3>三国类目与多规格能力</h3><p class="muted">AI生成当地搜索词，候选和多规格属性均读取美客多官方接口。确认类目前不能生成AI刊登文案。</p></div><button id="runCategoryAssessment" class="button accent">分析三国类目</button></div>
+          <div class="section-heading"><div><p class="eyebrow">CATEGORY GATE</p><h3>MX / BR 类目与多规格能力</h3><p class="muted">AI生成当地搜索词，候选和多规格属性均读取美客多官方接口。确认类目前不能生成AI刊登文案。</p></div><button id="runCategoryAssessment" class="button accent">分析目标类目</button></div>
           <div id="categoryAssessmentGrid" class="country-grid"></div>
 
-          <div class="section-heading"><div><p class="eyebrow">COPY GENERATION</p><h3>三国标题、英文描述与参数</h3></div><button id="generateAiCopy" class="button accent">生成三国文案草稿</button></div>
+          <div class="section-heading"><div><p class="eyebrow">COPY GENERATION</p><h3>MX / BR 标题、英文描述与参数</h3></div><button id="generateAiCopy" class="button accent">生成目标文案草稿</button></div>
           <div class="safety-callout compact"><strong>生成依据</strong><span>人工确认事实 ＞ 手工补充事实 ＞ 产品原始资料。未确认的AI建议不会进入文案或图片生成，也不会覆盖已保存刊登。</span></div>
           <div id="aiListingDrafts" class="country-grid"></div>
 
@@ -140,7 +141,7 @@
         </div>
       </section>
 
-      <section id="page-candidates" class="page">
+      <section id="page-candidates" class="page active">
         <div class="panel"><h3>候选商品工作台</h3><p class="muted">市场与类目 → 参考参数 → 货源确认 → 正式草稿／Excel。MX与BR单独记录；正式发布继续使用已有预检。</p>
           <div class="toolbar"><input id="candidateFile" type="file" accept=".json,application/json"><button id="candidatePreview" class="button secondary">预览导入</button><button id="candidateImport" class="button primary" disabled>导入新候选</button><a class="button secondary" href="/api/candidates/template">示例JSON结构</a><a class="button secondary" href="/api/candidates/export">导出全部Excel</a><button id="candidateReload" class="button secondary">刷新</button></div>
           <p class="muted">相同ID不会覆盖已有候选。预览中并列显示原数据和新数据。</p><details><summary>导入预览与差异</summary><pre id="candidateImportPreview">请选择数据包</pre></details>
@@ -148,13 +149,15 @@
         <div id="candidateDetail" class="hidden"><h3 id="candidateName"></h3><pre id="candidateIssues" class="panel"></pre><div id="candidateEditor" class="candidate-editor"></div></div>
       </section>
 
+      <section id="page-localization" class="page"><div class="panel"><h3 id="localizationName">翻译与输出</h3><p class="muted">从候选商品进入。审核英文原稿后，再确认巴西葡语和墨西哥西语。</p></div><div id="localizationEditor" class="candidate-editor"></div></section>
+
       <section id="page-review" class="page">
         <div class="toolbar"><select id="reviewProductSelect" class="grow"><option value="">选择需要审核的产品</option></select><button id="reloadReview" class="button secondary">刷新详情</button></div>
         <div id="reviewEmpty" class="panel empty">请选择一个产品。</div>
         <div id="reviewContent" class="hidden">
           <div class="review-hero panel"><div><p class="eyebrow">PRODUCT FAMILY</p><h3 id="reviewProductName"></h3><p id="reviewProductMeta" class="muted"></p></div><span id="reviewProductStatus" class="status-pill"></span></div>
           <div class="section-heading"><div><p class="eyebrow">VARIANTS</p><h3>规格与库存</h3></div><span id="reviewVariantCount" class="step-chip"></span></div>
-          <div class="panel table-panel"><table><thead><tr><th>Seller SKU</th><th>颜色</th><th>尺寸</th><th>库存</th><th>global_net_proceeds USD</th><th>参与发布</th><th>主图</th><th></th></tr></thead><tbody id="reviewVariantsBody"></tbody></table><p class="muted table-note">global_net_proceeds 是该 User Product 希望获得的平台净收益金额，不等于三国前台售价；每个规格必须人工确认。</p></div>
+          <div class="panel table-panel"><table><thead><tr><th>Seller SKU</th><th>颜色</th><th>尺寸</th><th>库存</th><th>global_net_proceeds USD</th><th>参与发布</th><th>主图</th><th></th></tr></thead><tbody id="reviewVariantsBody"></tbody></table><p class="muted table-note">global_net_proceeds 是该 User Product 希望获得的平台净收益金额，不等于两站前台售价；每个规格必须人工确认。</p></div>
 
           <div class="section-heading"><div><p class="eyebrow">MEDIA</p><h3>图片上传与颜色关联</h3></div></div>
           <div class="panel media-toolbar"><input id="mediaFile" type="file" accept="image/*" multiple><select id="mediaRole"><option value="original">原图</option><option value="white_background">白底图</option><option value="dimension">尺寸图</option><option value="feature">功能图</option><option value="scene">场景图</option></select><button id="uploadMedia" class="button secondary">批量上传图片</button></div>
@@ -162,21 +165,19 @@
           <div class="section-heading compact"><div><p class="eyebrow">VARIANT IMAGE MAP</p><h3>各规格已选图片</h3><p class="muted">编号对应上方图片。移除只解除该规格的选择，不删除原图。</p></div></div>
           <div id="variantImageMap" class="variant-image-map"></div>
 
-          <div class="section-heading"><div><p class="eyebrow">EXISTING ITEMS</p><h3>现有黑色刊登校准</h3></div><button id="inspectExistingItems" class="button secondary">只读获取</button></div>
+          <div class="section-heading"><div><p class="eyebrow">EXISTING ITEMS</p><h3>现有巴西刊登校准</h3></div><button id="inspectExistingItems" class="button secondary">只读获取</button></div>
           <div class="panel item-inspector">
-            <label>Colombia Item ID<input id="existingItemMCO" type="text" placeholder="例如 MCO1000000000" maxlength="18"></label>
-            <label>Chile Item ID<input id="existingItemMLC" type="text" placeholder="例如 MLC1000000000" maxlength="18"></label>
+            <label>Brazil Item ID<input id="existingItemMLB" type="text" placeholder="例如 MLB1000000000" maxlength="18"></label>
             <p class="muted span-all">仅读取当前授权账号拥有的明确Item，不列出店铺商品，不修改现有刊登。</p>
           </div>
           <div id="itemInspectionResults" class="result-grid hidden">
-            <article class="panel"><div class="panel-title"><h3>Colombia</h3><span id="itemInspectionBadgeMCO" class="status-pill">尚未读取</span></div><pre id="itemInspectionMCO">{}</pre></article>
-            <article class="panel"><div class="panel-title"><h3>Chile</h3><span id="itemInspectionBadgeMLC" class="status-pill">尚未读取</span></div><pre id="itemInspectionMLC">{}</pre></article>
+            <article class="panel"><div class="panel-title"><h3>Brazil</h3><span id="itemInspectionBadgeMLB" class="status-pill">尚未读取</span></div><pre id="itemInspectionMLB">{}</pre></article>
           </div>
 
-          <div class="section-heading"><div><p class="eyebrow">COUNTRY LISTINGS</p><h3>三国文案与报价校准</h3><p class="muted">三国售价用于人工测算和后续站点校准；Family 创建接口使用每个 UP 的 global_net_proceeds。</p></div><button id="discoverCategories" class="button accent">查询三国类目建议</button></div>
+          <div class="section-heading"><div><p class="eyebrow">COUNTRY LISTINGS</p><h3>MX / BR 文案与报价校准</h3><p class="muted">两站售价用于人工测算和后续站点校准；Family 创建接口使用每个 UP 的 global_net_proceeds。</p></div><button id="discoverCategories" class="button accent">查询目标类目建议</button></div>
           <div id="categorySuggestions" class="suggestions hidden"></div>
           <div class="panel quote-panel">
-            <div class="panel-title"><div><p class="eyebrow">TRANSPARENT PRICING</p><h3>三国报价计算器</h3></div><button id="calculateQuotes" class="button accent">计算并填入三国价格</button></div>
+            <div class="panel-title"><div><p class="eyebrow">TRANSPARENT PRICING</p><h3>MX / BR 报价计算器</h3></div><button id="calculateQuotes" class="button accent">计算并填入两站价格</button></div>
             <div class="quote-common">
               <label>采购价 CNY<input id="quotePurchase" type="number" min="0" step="0.0001"></label>
               <label>包装重量 g<input id="quoteWeight" type="number" min="1" step="1"></label>
@@ -190,8 +191,7 @@
             </div>
             <div class="quote-sites">
               <div><strong>Mexico · MXN</strong><label>MXN / USD<input id="quoteRateMLM" type="number" min="0" step="0.0001"></label><label>本地配送费<input id="quoteLocalMLM" type="number" min="0" step="0.01"></label><label>其他固定成本<input id="quoteOtherMLM" type="number" min="0" step="0.01" value="0"></label></div>
-              <div><strong>Colombia · COP</strong><label>COP / USD<input id="quoteRateMCO" type="number" min="0" step="0.0001"></label><label>本地配送费<input id="quoteLocalMCO" type="number" min="0" step="0.01"></label><label>其他固定成本<input id="quoteOtherMCO" type="number" min="0" step="0.01" value="0"></label></div>
-              <div><strong>Chile · CLP</strong><label>CLP / USD<input id="quoteRateMLC" type="number" min="0" step="0.0001"></label><label>本地配送费<input id="quoteLocalMLC" type="number" min="0" step="0.01"></label><label>其他固定成本<input id="quoteOtherMLC" type="number" min="0" step="0.01" value="0"></label></div>
+              <div><strong>Brazil · BRL</strong><label>BRL / USD<input id="quoteRateMLB" type="number" min="0" step="0.0001"></label><label>本地配送费<input id="quoteLocalMLB" type="number" min="0" step="0.01"></label><label>其他固定成本<input id="quoteOtherMLB" type="number" min="0" step="0.01" value="0"></label></div>
             </div>
             <div id="quoteResults" class="quote-results muted">所有计算依据均由人工填写；系统不会自动获取或隐藏费用。</div>
           </div>
@@ -202,10 +202,10 @@
 
       <section id="page-publish" class="page">
         <div class="toolbar"><select id="publishProductSelect" class="grow"><option value="">选择需要预检的产品</option></select><button id="runLocalPreflight" class="button secondary">本地预检</button><button id="runRemotePreflight" class="button primary">远程只读预检</button></div>
-        <div class="panel publish-site-selector"><strong>选择本次发布国家</strong><label><input type="checkbox" name="publishSite" value="MLM"> Mexico · MLM</label><label><input type="checkbox" name="publishSite" value="MCO"> Colombia · MCO</label><label><input type="checkbox" name="publishSite" value="MLC"> Chile · MLC</label><span class="muted">每次预检和正式发布只使用当前勾选站点。</span></div>
+        <div class="panel publish-site-selector"><strong>选择本次发布国家</strong><label><input type="checkbox" name="publishSite" value="MLM"> Mexico · MLM</label><label><input type="checkbox" name="publishSite" value="MLB"> Brazil · MLB</label><span class="muted">每次预检和正式发布只使用当前勾选站点。</span></div>
         <input id="familyPublishMode" type="hidden" value="create">
         <div class="workflow-grid"><article id="publishFlowCreate" class="panel workflow-card"><strong>新商品上架</strong><p>创建新的 Product Family，并发布本产品中勾选的全部规格。</p></article><article id="publishFlowUpdate" class="panel workflow-card"><strong>既有 Family 增加规格</strong><p>只向已确认的 Family 增加本产品规格，不创建新 Family。</p></article></div>
-        <div id="existingFamilyTargetPanel" class="panel publish-site-selector hidden"><strong>既有 Family 目标</strong><label class="grow">既有商品 ID 或 Family ID<input id="existingFamilyItemId" type="text" autocomplete="off" placeholder="商品ID：CBT1000000000 / MCO1000000001 · Family ID：1000000000000001"></label><span class="muted">可使用商品 ID 只读解析、直接填写 Family ID，或留空使用本产品已持久化的唯一 Family。</span></div>
+        <div id="existingFamilyTargetPanel" class="panel publish-site-selector hidden"><strong>既有 Family 目标</strong><label class="grow">既有商品 ID 或 Family ID<input id="existingFamilyItemId" type="text" autocomplete="off" placeholder="商品ID：CBT1000000000 / MLB1000000001 · Family ID：1000000000000001"></label><span class="muted">可使用商品 ID 只读解析、直接填写 Family ID，或留空使用本产品已持久化的唯一 Family。</span></div>
         <div class="safety-callout"><strong>安全边界</strong><span>预检始终只读。图片上传和正式发布是两个独立步骤；正式发布必须输入 PUBLISH，且服务器 MELI_PUBLISH_ENABLED=true 才会执行。</span></div>
         <div id="preflightSummary" class="metric-grid"></div>
         <div class="result-grid">
