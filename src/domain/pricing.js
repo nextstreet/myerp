@@ -1,5 +1,6 @@
 export const SITE_RULES = Object.freeze({
   MLM: { country: 'Mexico', currency: 'MXN', roundingStep: 1 },
+  MLB: { country: 'Brazil', currency: 'BRL', roundingStep: 1 },
   MCO: { country: 'Colombia', currency: 'COP', roundingStep: 100 },
   MLC: { country: 'Chile', currency: 'CLP', roundingStep: 100 }
 });
@@ -103,7 +104,7 @@ export function calculateSiteQuote(input) {
 
 export function calculateThreeSiteQuotes(input) {
   const siteInputs = input.sites ?? {};
-  return Object.keys(SITE_RULES).map((site) => calculateSiteQuote({
+  return ['MLM', 'MCO', 'MLC'].map((site) => calculateSiteQuote({
     ...input.common,
     ...siteInputs[site],
     site

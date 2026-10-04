@@ -5,8 +5,7 @@ const state = {
 };
 const sites = [
   { id: 'MLM', name: 'Mexico', currency: 'USD', localCurrency: 'MXN' },
-  { id: 'MCO', name: 'Colombia', currency: 'USD', localCurrency: 'COP' },
-  { id: 'MLC', name: 'Chile', currency: 'USD', localCurrency: 'CLP' }
+  { id: 'MLB', name: 'Brazil', currency: 'USD', localCurrency: 'BRL' }
 ];
 const statusLabels = {
   pending_import: '待导入', pending_ai: '待AI处理', ai_processing: 'AI处理中',
@@ -99,7 +98,7 @@ function statusPill(status) {
 function navigate(page) {
   document.querySelectorAll('.page').forEach((node) => node.classList.toggle('active', node.id === `page-${page}`));
   document.querySelectorAll('.nav-item').forEach((node) => node.classList.toggle('active', node.dataset.page === page));
-  const titles = { candidates: '候选商品工作台', products: '产品列表', import: '导入产品', ai: 'AI 内容工作台', review: '人工审核与报价', publish: '发布预检' };
+  const titles = { localization: '翻译与输出', candidates: '英文选品草稿', products: '产品列表', import: '导入产品', ai: 'AI 内容工作台', review: '人工审核与报价', publish: '发布预检' };
   $('pageTitle').textContent = titles[page];
   if (page === 'candidates') window.loadCandidates();
   if (page === 'products') loadProducts();
@@ -149,7 +148,7 @@ function renderProductVariants(product) {
     } else {
       const sites = v.siteStatuses ?? [];
       const seen = new Set();
-      for (const s of sites) {
+      for (const s of sites.filter(item => ['MLM','MLB'].includes(item.site))) {
         const key = s.site;
         if (seen.has(key)) continue; seen.add(key);
         chip.append(siteBadge(s.site, s.publishStatus));
@@ -262,7 +261,7 @@ async function createProduct(event) {
       purchasePriceCny: Number(data.get('purchasePriceCny')), packedWeightG: Number(data.get('packedWeightG')),
       productDimensions: data.get('productSize') ? { text: data.get('productSize') } : {},
       packageDimensions: data.get('packageSize') ? { text: data.get('packageSize') } : {},
-      rawAttributes, notes: data.get('notes') || null, targetSites: ['MLM', 'MCO', 'MLC'], variants,
+      rawAttributes, notes: data.get('notes') || null, targetSites: ['MLM', 'MLB'], variants,
       workflowType: data.get('workflowType') || 'new_product'
     }) });
     toast(`产品已创建，保留 ${result.variantCount} 个规格`);
@@ -335,7 +334,7 @@ async function loadAiWorkspace(productId) {
     $('runCategoryAssessment').disabled = !provider.configured;
     $('generateAiCopy').disabled = !provider.configured || !workspace.categoryReadiness?.ready;
     $('generateAiCopy').title = workspace.categoryReadiness?.ready
-      ? '' : '请先确认三个站点均支持当前规格轴的类目';
+      ? '' : '请先确认目标站点均支持当前规格轴的类目';
     $('generateImagePlan').disabled = !provider.configured;
     $('generateWhiteBackground').disabled = !provider.imageGenerationConfigured;
     renderAiMedia(); renderCategoryAssessments(workspace.categoryAssessments); renderAiJobs();
@@ -503,7 +502,7 @@ function renderAiListingDrafts(drafts) {
     const stack = document.createElement('div'); stack.className = 'field-stack';
     const controls = {};
     for (const [name, label, value, rows] of [
-      ['title', '西班牙语标题', draft.title, 2],
+      ['title', site.id === 'MLB' ? '葡萄牙语标题' : '西班牙语标题', draft.title, 2],
       ['description', 'English Description', draft.descriptionEnglish, 7],
       ['specifications', 'English Specifications JSON', pretty(draft.specificationsEnglish), 7],
       ['attributes', '类目属性建议 JSON', pretty(draft.attributeSuggestions), 7]
@@ -537,10 +536,10 @@ async function generateAiCopy() {
   try {
     let connectedAccountId = null;
     try { connectedAccountId = await accountId(); } catch { connectedAccountId = null; }
-    const result = await withBusy($('generateAiCopy'), '生成三国文案中…', () => api(`/api/ai/products/${state.aiProduct.id}/listing-drafts`, {
+    const result = await withBusy($('generateAiCopy'), '生成MX / BR文案中…', () => api(`/api/ai/products/${state.aiProduct.id}/listing-drafts`, {
       method: 'POST', body: JSON.stringify({ requestKey: crypto.randomUUID(), selectedSites: sites.map((site) => site.id), accountId: connectedAccountId })
     }));
-    state.aiDrafts = result; renderAiListingDrafts(result); toast('三国文案草稿已生成，保存前请逐项审核'); await loadAiWorkspace(state.aiProduct.id);
+    state.aiDrafts = result; renderAiListingDrafts(result); toast('MX / BR文案草稿已生成，保存前请逐项审核'); await loadAiWorkspace(state.aiProduct.id);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -745,7 +744,7 @@ function renderListings() {
     const stack = document.createElement('div'); stack.className = 'field-stack';
     const controls = {};
     for (const field of [
-      ['title', '西班牙语标题', listing.title || '', 'input'], ['categoryId', '站点类目 ID', listing.categoryId || '', 'input'],
+      ['title', site.id === 'MLB' ? '葡萄牙语标题' : '西班牙语标题', listing.title || '', 'input'], ['categoryId', '站点类目 ID', listing.categoryId || '', 'input'],
       ['globalCategoryId', 'CBT 全局类目 ID', listing.familyData?.globalCategoryId || '', 'input'],
       ['familyName', 'Family 名称（English，≤60字符）', listing.familyName || '', 'input'], ['descriptionEnglish', 'English Description', listing.descriptionEnglish || '', 'textarea'],
       ['globalAttributes', 'CBT 必填属性 JSON', JSON.stringify(listing.familyData?.globalAttributes || {}, null, 2), 'textarea'],
@@ -808,7 +807,7 @@ async function calculateQuotes() {
       localFulfillmentFee: numericValue(`quoteLocal${site.id}`),
       otherFixedCost: numericValue(`quoteOther${site.id}`)
     };
-    const data = await api('/api/pricing/quote-all', { method: 'POST', body: JSON.stringify({ common, sites: siteInputs }) });
+    const data = { quotes: await Promise.all(sites.map(site => api('/api/pricing/quote', { method: 'POST', body: JSON.stringify({ ...common, site: site.id, ...siteInputs[site.id] }) }))) };
     state.quotes = Object.fromEntries(data.quotes.map((quote) => [quote.site, quote]));
     for (const quote of data.quotes) {
       const card = document.querySelector(`.country-card[data-site="${quote.site}"]`);
@@ -819,7 +818,7 @@ async function calculateQuotes() {
     $('quoteResults').textContent = data.quotes.map((quote) =>
       `${quote.country}: ${quote.normal.price} ${quote.currency}（API ${(quote.normal.price / quote.basis.siteCurrencyPerUsd).toFixed(2)} USD）/ 促销 ${quote.promotion.price} / 净收益 ${quote.promotion.netProfitUsd} USD / 利润率 ${(quote.promotion.netMarginRate * 100).toFixed(1)}%`
     ).join('　｜　');
-    toast('三国价格已计算并填入，确认后再保存');
+    toast('两站价格已计算并填入，确认后再保存');
   } catch (error) { toast(error.message, true); }
 }
 
@@ -860,7 +859,7 @@ function itemInspectionSummary(data) {
 }
 
 async function inspectExistingItems() {
-  const requested = ['MCO', 'MLC'].map((site) => ({
+  const requested = ['MLM', 'MLB'].map((site) => ({
     site,
     itemId: $(`existingItem${site}`).value.trim().toUpperCase()
   })).filter((item) => item.itemId);
@@ -887,7 +886,7 @@ async function discoverCategories() {
   if (!state.review) return;
   try {
     const id = await accountId();
-    const spanishTitle = state.review.listings.find((item) => item.title)?.title || state.review.originalTitle;
+    const spanishTitle = state.review.listings.find((item) => item.site === 'MLM')?.title || state.review.originalTitle;
     const data = await api(`/api/integrations/mercadolibre/accounts/${id}/category-discovery`, { method: 'POST', body: JSON.stringify({ query: spanishTitle, sites: ['CBT', ...sites.map((site) => site.id)], limit: 5 }) });
     const container = $('categorySuggestions'); container.replaceChildren(); container.classList.remove('hidden');
     data.results.forEach((result) => { const box = document.createElement('article'); box.className = 'suggestion-site'; const heading = document.createElement('h4'); heading.textContent = result.site; box.append(heading); result.suggestions.forEach((item) => { const line = document.createElement('span'); line.className = 'suggestion-item'; line.textContent = `${item.categoryId} · ${item.categoryName}`; box.append(line); }); container.append(box); });
@@ -926,7 +925,7 @@ function publishSelection() {
   if (!sites.length) throw new Error('请至少选择一个发布国家');
   const publishMode = $('familyPublishMode').value;
   const existingItemId = $('existingFamilyItemId').value.trim().toUpperCase();
-  // update 模式支持两种目标：源商品 ID（CBT/MCO/...，触发只读归属解析）或
+  // update 模式支持两种目标：源商品 ID（CBT/MLB/...，触发只读归属解析）或
   // 直接的 Siteless Family ID（数字）。两者都为空时，后端会回退到该产品
   // 本地已持久化的 Family ID（若有）。
   return { productId, sites, publishMode, existingItemId,
@@ -1044,7 +1043,7 @@ async function boot() {
   if (!session.configured) return showLogin('可视化控制台尚未在服务器环境变量中配置。');
   if (!session.authenticated) return showLogin();
   updatePublishSafetyBadge(Boolean(session.publishEnabled));
-  showApp(); await loadProducts();
+  showApp(); await loadProducts(); window.loadCandidates?.();
 }
 
 $('loginForm').addEventListener('submit', async (event) => {

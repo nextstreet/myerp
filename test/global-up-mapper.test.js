@@ -117,3 +117,16 @@ test('existing Family preview refuses to fall back to creating a Family', () => 
     publishTarget: { mode: 'update' }
   }), { code: 'existing_family_id_required' });
 });
+
+test('CBT UP payload carries MLB sales condition and English family body', () => {
+  const preview = buildGlobalUpFamilyPreview({
+    product: { originalTitle: 'Demo', familyName: 'Desktop organizer' },
+    variants: [{ id: 'v1', sellerSku: 'SKU-BR', color: 'White', globalNetProceedsUsd: 6, stock: 5 }],
+    listings: [{ site: 'MLB', title: 'Organizador de mesa', categoryId: 'MLB123', globalCategoryId: 'CBT123', currency: 'USD', descriptionEnglish: 'English description.', familyData: { globalCategoryId: 'CBT123' } }],
+    mediaByVariant: { v1: [{ mercadoPictureId: 'PIC-1' }] }
+  });
+  assert.equal(preview.request.body[0].sites_to_sell[0].site_id, 'MLB');
+  assert.equal(preview.request.body[0].description.plain_text, 'English description.');
+  assert.equal(preview.request.body[0].family_name, 'Desktop organizer');
+  assert.ok(!Object.hasOwn(preview.request.body[0], 'title'));
+});

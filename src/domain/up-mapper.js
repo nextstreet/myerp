@@ -1,4 +1,4 @@
-const SITE_NAMES = Object.freeze({ MLM: 'Mexico', MCO: 'Colombia', MLC: 'Chile' });
+const SITE_NAMES = Object.freeze({ MLM: 'Mexico', MLB: 'Brazil', MCO: 'Colombia', MLC: 'Chile' });
 
 export function preflightProductFamily({ product, variants, listings = [], mediaByVariant = {} }) {
   const errors = [];

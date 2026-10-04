@@ -78,6 +78,7 @@ async function loadFamily(db, productId) {
   const targetSites = Array.isArray(product.targetSites)
     ? product.targetSites
     : String(product.targetSites ?? '').replace(/^\{|\}$/g, '').split(',').filter(Boolean);
+  product.targetSites = targetSites;
   // CBT category data, attributes and sale terms belong to the global Family,
   // even though the review UI stores them inside a site listing. Preserve the
   // first non-empty reviewed values across all product listings before the
@@ -176,7 +177,7 @@ async function resolvePublishTarget(app, accountId, request, family) {
       resolution: { source: 'persisted_family_id', persistedFamilyIds }
     };
   }
-  if (!/^(CBT|MLM|MCO|MLC)\d+$/.test(sourceItemId)) {
+  if (!/^(CBT|MLM|MLB|MCO|MLC)\d+$/.test(sourceItemId)) {
     throw problem('A valid Family ID or owned CBT/marketplace item ID is required for existing Family mode',
       'existing_family_source_item_required');
   }

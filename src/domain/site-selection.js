@@ -1,4 +1,4 @@
-const SUPPORTED_SITES = Object.freeze(['MLM', 'MCO', 'MLC']);
+const SUPPORTED_SITES = Object.freeze(['MLM', 'MLB', 'MCO', 'MLC']);
 
 export function normalizeSelectedSites(requestedSites, allowedSites) {
   const allowed = new Set((allowedSites ?? SUPPORTED_SITES).filter((site) => SUPPORTED_SITES.includes(site)));

@@ -18,3 +18,8 @@ test('family scope filters both product target sites and listings', () => {
   assert.deepEqual(scoped.product.targetSites, ['MCO']);
   assert.deepEqual(scoped.listings.map((item) => item.site), ['MCO']);
 });
+
+test('Brazil is an independent selectable Global Selling marketplace', () => {
+  assert.deepEqual(normalizeSelectedSites(['MLB'], ['MLM', 'MLB']), ['MLB']);
+  assert.deepEqual(normalizeSelectedSites(['MLB', 'MLM'], ['MLM', 'MLB']), ['MLM', 'MLB']);
+});

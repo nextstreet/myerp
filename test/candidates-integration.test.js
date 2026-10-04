@@ -5,6 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import Fastify from 'fastify';
 import { candidatesRoutes } from '../src/routes/candidates.js';
 import { productsRoutes } from '../src/routes/products.js';
+import { publishRoutes } from '../src/routes/publish.js';
 import { readyCandidate } from './helpers/candidate-fixture.js';
 import { JSDOM } from 'jsdom';
 import vm from 'node:vm';
@@ -27,6 +28,7 @@ test('candidate import, official check, editable UI and transactional draft conv
   app.setErrorHandler((e, _req, reply) => reply.code(e.statusCode ?? 500).send({ error: e.code, message: e.message, details: e.details }));
   await app.register(candidatesRoutes, { prefix: '/api/candidates' });
   await app.register(productsRoutes, { prefix: '/api/products' });
+  await app.register(publishRoutes, { prefix: '/api/publish' });
   app.get('/console/api/session', async () => ({ authenticated: true, configured: true }));
   app.get('/api/integrations/mercadolibre/accounts', async () => [{ id: 'test-account', status: 'connected' }]);
   const request = async (method, url, body) => { const r = await app.inject({ method, url, payload: body }); return { status: r.statusCode, body: r.json() }; };
@@ -99,4 +101,36 @@ test('candidate import, official check, editable UI and transactional draft conv
   assert.equal((await db.query('SELECT * FROM products')).rows.length, 1);
   assert.equal((await db.query('SELECT * FROM product_media')).rows.length, 1);
   assert.equal((await request('GET', '/api/candidates/rollback-candidate')).body.productId, null);
+  const brazil = readyCandidate(); brazil.id = 'brazil-candidate'; brazil.targetSites = ['MLB'];
+  brazil.sites = { MLB: { title: 'Organizador de mesa', description: 'Quatro divisórias.', categoryId: 'MLB123', cbtCategoryId: 'CBT123', attributes: {}, evidence: [], localizedFrom: JSON.stringify([brazil.english.title, brazil.english.description, brazil.english.sellingPoints]) } };
+  brazil.skus[0].sellerSku = 'SKU-MLB';
+  brazil.researchSources = [{ platform: 'Amazon', url: 'https://www.amazon.com/dp/B07BHKNTHY', notes: 'Comparable; no exact weight.' }];
+  assert.equal((await request('POST', '/api/candidates/import', { schemaVersion: 1, candidates: [brazil] })).status, 200);
+  const brazilBase = '/api/candidates/brazil-candidate';
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('<!doctype html><html><h1 id="productTitle">Desk organizer with two drawers</h1></html>', { headers: { 'content-type': 'text/html' } });
+  try {
+    const extraction = await request('POST', `${brazilBase}/research/extract`, { revision: 1, url: brazil.researchSources[0].url });
+    assert.equal(extraction.status, 200); assert.equal(extraction.body.status, 'extracted');
+    assert.equal((await request('GET', brazilBase)).body.researchSources[0].extracted, undefined); // explicit review/save only
+  } finally { globalThis.fetch = realFetch; }
+  const suggestion = await request('POST', `${brazilBase}/english/suggest`, { revision: 1 });
+  assert.equal(suggestion.status, 503); // no paid provider configured in this isolated run
+  const checked = await request('POST', `${brazilBase}/categories/MLB/check`, { revision: 1, accountId: 'test-account' });
+  assert.equal(checked.body.categoryChecks.MLB.ok, true);
+  await dom.window.openCandidateLocalization('brazil-candidate');
+  assert.match(dom.window.document.querySelector('#localizationEditor').textContent, /巴西葡萄牙语/);
+  assert.doesNotMatch(dom.window.document.querySelector('#localizationEditor').textContent, /哥伦比亚|智利/);
+  const promotedBrazil = await request('POST', `${brazilBase}/promote`, { revision: 2, sites: ['MLB'] });
+  assert.equal(promotedBrazil.status, 200, JSON.stringify(promotedBrazil.body));
+  const brazilListing = (await db.query('SELECT * FROM listings WHERE product_id=$1', [promotedBrazil.body.id])).rows[0];
+  assert.equal(brazilListing.site, 'MLB'); assert.equal(brazilListing.category_id, 'MLB123');
+  assert.equal(brazilListing.description_english, brazil.english.description);
+  const categoryAssessment = (await db.query('SELECT * FROM product_category_assessments WHERE product_id=$1', [promotedBrazil.body.id])).rows[0];
+  assert.equal(categoryAssessment.site, 'MLB'); assert.equal(categoryAssessment.status, 'confirmed');
+  const preflight = await request('GET', `/api/publish/${promotedBrazil.body.id}/preflight?sites=MLB`);
+  assert.equal(preflight.status, 200, JSON.stringify(preflight.body));
+  assert.ok(preflight.body.errors.every(e => e.code !== 'unsupported_site'));
+  assert.ok(preflight.body.errors.some(e => e.code === 'missing_price' || e.code === 'unreviewed_variant_image'));
+
 });

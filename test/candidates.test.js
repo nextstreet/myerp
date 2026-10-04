@@ -23,7 +23,7 @@ test('reference or unconfirmed SKU overrides never supply publish facts', () => 
   data.skus[0].facts.packedWeightG = { actual: { value: 700, source: '供应商', confirmed: false } };
   assert.equal(confirmedValue(data, data.skus[0], 'packedWeightG'), undefined);
 });
-test('category changes, expired metadata, unsupported axes and MLB cannot promote silently', () => {
+test('category changes, expired metadata, unsupported axes and incomplete MLB cannot promote silently', () => {
   const data = readyCandidate(), check = readyCheck(); check.MLM.checkedAt = '2020-01-01';
   assert.ok(candidateIssues(data, check).some(i => i.message.includes('24小时')));
   check.MLM = readyCheck().MLM; data.sites.MLM.categoryId = 'MLM456';
@@ -31,8 +31,8 @@ test('category changes, expired metadata, unsupported axes and MLB cannot promot
   data.sites.MLM.categoryId = 'MLM123';
   data.skus.push({ ...data.skus[0], id: 'second', sellerSku: 'EXAMPLE-S', size: 'Small' }); data.skus[0].size = 'Large';
   assert.ok(candidateIssues(data, check).some(i => i.message.includes('SIZE')));
-  data.targetSites.push('MLB');
-  assert.ok(candidateIssues(data, check).some(i => i.message.includes('巴西')));
+  data.targetSites.push('MLB'); data.sites.MLB = { categoryId: 'MLB123', cbtCategoryId: 'CBT123', title: '', description: '' };
+  assert.ok(candidateIssues(data, check).some(i => i.field === 'MLB'));
 });
 test('confirmed facts need provenance; images and category namespaces are validated', () => {
   const data = readyCandidate(); data.facts.material.actual.source = '';
@@ -52,4 +52,40 @@ test('Excel has six readable sheets and preserves references, actuals, SKU links
   const facts = workbook.getWorksheet('参数来源');
   let found = false; facts.eachRow(row => { if (row.getCell(3).value === 'packedWeightG') { found = true; assert.equal(row.getCell(4).value, 420); assert.equal(row.getCell(8).value, 650); assert.equal(row.getCell(10).value, '供应商'); } });
   assert.ok(found); assert.equal(workbook.getWorksheet('SKU').getCell('K2').value, 'white');
+});
+
+test('English stage can be saved before locale copy; edits invalidate both locale reviews', () => {
+  const data = readyCandidate(), check = readyCheck();
+  data.sites.MLM.title = ''; data.sites.MLM.description = ''; data.sites.MLM.localizedFrom = '';
+  assert.doesNotThrow(() => validateCandidate(data));
+  assert.ok(candidateIssues(data, check).some(i => i.message.includes('译文')));
+  data.sites.MLM.title = 'Organizador de escritorio'; data.sites.MLM.description = 'Organiza objetos de escritorio.';
+  data.sites.MLM.localizedFrom = JSON.stringify([data.english.title, data.english.description, data.english.sellingPoints]);
+  assert.deepEqual(candidateIssues(data, check), []);
+  data.english.description = 'Edited confirmed English description.';
+  assert.ok(candidateIssues(data, check).some(i => i.message.includes('英文内容已改变')));
+});
+
+test('Brazil leaf/category variation passes once localized copy is confirmed', () => {
+  const data = readyCandidate(); data.targetSites = ['MLB'];
+  data.sites = { MLB: { title: 'Organizador de mesa', description: 'Guarda objetos de mesa.', categoryId: 'MLB123', cbtCategoryId: 'CBT123', localizedFrom: JSON.stringify([data.english.title, data.english.description, data.english.sellingPoints]) } };
+  const check = { MLB: { ok: true, categoryId: 'MLB123', checkedAt: new Date().toISOString(), variationAttributes: [{ id: 'COLOR' }] } };
+  assert.deepEqual(candidateIssues(data, check), []);
+  data.skus.push({ ...data.skus[0], id: 'black', sellerSku: 'EXAMPLE-BK', color: 'Black' });
+  assert.deepEqual(candidateIssues(data, check), []);
+  check.MLB.variationAttributes = [];
+  assert.ok(candidateIssues(data, check).some(i => i.message.includes('COLOR')));
+});
+
+test('market references remain auditable and workbook exports English plus locale copy', async () => {
+  const data = readyCandidate();
+  data.researchSources = [{ platform: 'Amazon', url: 'https://example.com/product', notes: 'Comparable shape; weight remains unverified.' }];
+  assert.doesNotThrow(() => validateCandidate(data));
+  const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await candidateWorkbook([{ id: data.id, data, batch_id: 'batch', category_checks: {}, product_id: null }]));
+  const productRow = workbook.getWorksheet('商品').getRow(2);
+  assert.equal(productRow.getCell(9).value, data.english.title);
+  assert.match(productRow.getCell(12).value, /Amazon/);
+  const siteRow = workbook.getWorksheet('站点类目').getRow(2);
+  assert.equal(siteRow.getCell(3).value, data.sites.MLM.title);
+  assert.equal(siteRow.getCell(4).value, data.sites.MLM.description);
 });
